@@ -3,6 +3,7 @@ import { layFlat, str } from '../../fixtures/util';
 import { Geo } from '../../geom/geo';
 import { mul, T } from '../../geom/mat';
 import type { FixtureDef, HardwareLine, PartSpec, PixelPlacement, ScheduleLine, Vec3 } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import type { HubClass } from './analyze';
 import { add, basis, frameX, frameZ, perp, rotFromTo, rotMat4, scale, sub, parseDesign } from './model';
 import { SN_PARAMS, type SnDims } from './params';
@@ -64,7 +65,9 @@ function hubSolid(g: Geo, c: HubClass, dims: SnDims, cache: Map<string, Manifold
     if (so.lit) {
       // Key slot: the spine end drops in here, so the strip's roll is fixed by the hub.
       const Fs = frameZ(so.dir, so.face);
-      cutters.push(g.place(g.box([sp.fBottom - 0.2, -sp.w / 2 - 0.2, tip - dims.slotDepth], [sp.fBarTop + 0.2, sp.w / 2 + 0.2, tip + 1]), Fs));
+      // Prismatic fit: the slot is the spine section plus the fit gap (half each side).
+      const k = dims.side;
+      cutters.push(g.place(g.box([sp.fBottom - k, -sp.w / 2 - k, tip - dims.slotDepth], [sp.fBarTop + k, sp.w / 2 + k, tip + 1]), Fs));
     }
     const t1 = off - 1.5 - dims.labelH / 2;
     const t2 = t1 - dims.labelH - 1;
@@ -89,7 +92,8 @@ function hubSolid(g: Geo, c: HubClass, dims: SnDims, cache: Map<string, Manifold
   cutters.push(g.place(g.cylZ(1.7, -half - 2, half + 2), Fb));
   cutters.push(g.place(g.cylZ(3.2, half - bolt.counterbore, half + 6), Fb));
   cutters.push(g.place(g.cylZ(3.35, -half - 6, -half + 3.2, 0, 0, 6), Fb));
-  for (const p of pins) cutters.push(g.place(g.cylZ(1.6, -6.2, 6.2), frameZ(n, perp(n), p)));
+  // Ø3 dowel holes, opened by the fit gap.
+  for (const p of pins) cutters.push(g.place(g.cylZ(dims.pinR, -6.2, 6.2), frameZ(n, perp(n), p)));
   if (feed) cutters.push(g.place(g.cylZ(4, 0, R + 2), frameZ(feed, perp(feed))));
 
   return g.cut(g.union(solids), cutters);
@@ -192,7 +196,7 @@ export const strutNode: FixtureDef = {
         couplers += (t.tubeSegs - 1) * members.length;
       }
       if (!t.dark) {
-        const segLen = t.spineSegLen - (t.spineSegs > 1 ? 0.3 : 0);
+        const segLen = t.spineSegLen - (t.spineSegs > 1 ? dims.fit : 0);
         parts.push({
           id: `spine-${t.id}`,
           name: `Spine ${t.id} · ${fmt(segLen)} mm${t.spineSegs > 1 ? ` (1 of ${t.spineSegs})` : ''}`,
@@ -200,7 +204,7 @@ export const strutNode: FixtureDef = {
           solid: spineSolid(g, dims, segLen),
           instances: members.flatMap((s) => {
             const A = hubPos.get(s.a)!.pos;
-            const start = s.offA + dims.insert - dims.slotDepth + 0.5;
+            const start = s.offA + dims.insert - dims.slotDepth + dims.keyGap;
             return Array.from({ length: t.spineSegs }, (_, k) =>
               frameX(s.dir, s.face, add(add(A, scale(s.dir, start + k * t.spineSegLen + segLen / 2)), scale(s.face, dims.spine.fBottom))),
             );
@@ -259,6 +263,38 @@ export const strutNode: FixtureDef = {
     if (chain.jumps) warnings.push(`The design is in ${chain.jumps + 1} separate pieces. The data path jumps between them on a free wire.`);
     const enclosure = an.struts.filter((s) => !s.dark).reduce((v, s) => v + Math.PI * dims.tubeIR ** 2 * s.litLength, 0) / 1000;
 
-    return { parts, pixels, schedule, hardware, warnings, enclosureCm3: enclosure || undefined };
+    const halvesB = idsOf(parts, (id) => id.startsWith('hub-') && id.endsWith('-B'));
+    const assembly = steps(parts, [
+      litStruts > 0 && {
+        title: 'Load the spines',
+        parts: idsOf(parts, 'spine-'),
+        hardware: `${litStruts}× JST-SM pigtail pair`,
+        note: `${dims.spine.kind === 'strip' ? `Press the strip into the top recess (${mm(dims.seat)} mm seat clearance)` : 'Clip the nodes into the trough'}, run the return wire in the channel underneath and solder a pigtail at each end.`,
+      },
+      {
+        title: 'Sleeve the struts',
+        parts: [...idsOf(parts, 'tube-'), 'coupler'],
+        note: `Slide each tube over its spine.${couplers ? ' Split tubes: push a coupler into one segment up to the ridge, then the next segment onto it.' : ''} Spigots and couplers are ${mm(dims.fit)} mm (the fit gap) under the tube bore.`,
+      },
+      {
+        title: 'Seat the nuts and dowels',
+        parts: halvesB,
+        hardware: `${hubs}× M3 nut${pinCount ? `, ${pinCount}× Ø3 dowel` : ''}`,
+        note: `Nut into the hex trap, dowels into the holes on the cut face. Dowel holes are Ø${mm(2 * dims.pinR)} (Ø3 + fit).`,
+      },
+      {
+        title: 'Build the frame hub by hub',
+        parts: [...halvesB, ...idsOf(parts, 'tube-', 'spine-')],
+        note: `Drop each spine end into its spigot key slot (the engraved collar labels name the strut; the slot is the spine plus ${mm(dims.fit)} mm), push the tube over the spigot to the collar and splice the wires in the hub cavity.`,
+      },
+      {
+        title: 'Close the hubs',
+        parts: idsOf(parts, (id) => id.startsWith('hub-') && id.endsWith('-A')),
+        hardware: [...bolts.entries()].map(([L, q]) => `${q}× M3×${L}`).join(', '),
+        note: `Half A over the dowels, then bolt through from the counterbore.${an.classes.some((c) => c.controller) ? ' Feed the controller cable through the grommet in the controller hub.' : ''}`,
+      },
+    ]);
+
+    return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3: enclosure || undefined };
   },
 };

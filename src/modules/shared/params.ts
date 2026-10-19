@@ -42,5 +42,12 @@ export function bedOf(params: Params): Bed {
 
 /** System params + design JSON + printer: the shape every `SystemCore.buildParams` returns. */
 export function buildParamsWith(specs: ParamSpec[], design: unknown, params: Params, printerId: string): Params {
-  return { ...resolveSpecs(specs, { ...params, printer: printerId }), design: JSON.stringify(design) };
+  const out: Params = { ...resolveSpecs(specs, { ...params, printer: printerId }), design: JSON.stringify(design) };
+  // Fit and seat belong to the host: leave them unset unless this system overrides them, so
+  // `hostFill` can apply the header's values instead of the spec defaults.
+  for (const k of HOST_KEYS) if (params[k] === undefined) delete out[k];
+  return out;
 }
+
+/** Hidden params the host fills (see `hostFill` in src/fit.ts). */
+const HOST_KEYS = ['fit', 'seat'] as const;

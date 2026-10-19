@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { DEFAULT_PRINTER_ID } from '../../printers';
 import { formatAddress, type ScheduleReport } from '../../schedule/schedule';
 import type { ParamSpec, Params } from '../../types';
+import { getFixture } from '../../fixtures/registry';
+import { FitControls } from '../../ui/FitControls';
 import { Field } from '../../ui/Inspector';
 import { useStore } from '../../ui/store';
-import { useBench } from '../../workbench/store';
+import { getCore } from '../../workbench/cores';
+import { paramsOf, useBench } from '../../workbench/store';
 import { resolveSpecs } from './params';
 
 /**
@@ -15,11 +18,30 @@ import { resolveSpecs } from './params';
 
 const EMPTY: Params = {};
 
-/** A system's params resolved with defaults and the header's printer, as the worker sees them. */
+/**
+ * A system's params resolved with defaults and the header's printer, fit gap and seat clearance
+ * (unless the system overrides them), as the worker sees them.
+ */
 export function useSystemParams(systemId: string, specs: ParamSpec[]): Params {
   const params = useBench((s) => s.params[systemId] ?? EMPTY);
+  const host = useHostParams();
+  return useMemo(() => resolveSpecs(specs, { ...host, ...params, printer: host.printer }), [params, host, specs]);
+}
+
+/** The header's printer, fit gap and seat clearance as params. */
+export function useHostParams(): { printer: string; fit: number; seat: number } {
   const printerId = useStore((s) => s.printerId);
-  return useMemo(() => resolveSpecs(specs, { ...params, printer: printerId ?? DEFAULT_PRINTER_ID }), [params, printerId, specs]);
+  const fit = useStore((s) => s.fitGap);
+  const seat = useStore((s) => s.seatClearance);
+  return useMemo(() => ({ printer: printerId ?? DEFAULT_PRINTER_ID, fit, seat }), [printerId, fit, seat]);
+}
+
+/** The Fit group for the active bench system: shows the global fit and seat, and lets this system override them. */
+export function SystemFit() {
+  const system = useBench((s) => s.system);
+  const stored = useBench(paramsOf);
+  const def = getFixture(getCore(system).moduleId);
+  return <FitControls def={def} stored={stored} setParam={(k, v) => useBench.getState().setParam(k, v)} unsetParam={(k) => useBench.getState().unsetParam(k)} />;
 }
 
 /** The latest built schedule for a module, or null while it builds or for another system. */
@@ -68,7 +90,7 @@ export function NameInput({ name, onRename }: { name: string; onRename: (n: stri
   );
 }
 
-/** Visible system params as grouped fieldsets, plus a reset button. Hidden and json params are skipped. */
+/** Visible system params as grouped fieldsets, the Fit group, then a reset button. Hidden and json params are skipped. */
 export function ParamGroups({ specs, values }: { specs: ParamSpec[]; values: Params }) {
   const setParam = useBench((s) => s.setParam);
   const reset = useBench((s) => s.resetParams);
@@ -88,6 +110,7 @@ export function ParamGroups({ specs, values }: { specs: ParamSpec[]; values: Par
           ))}
         </fieldset>
       ))}
+      <SystemFit />
       <button className="ghost" onClick={reset}>
         Reset system settings
       </button>

@@ -26,8 +26,9 @@ const lin = makeFacade<LineaDesign>(SYSTEM_ID);
 
 /** Resolved params as the worker sees them (for actions, outside React). */
 function currentParams(): Params {
-  const printer = useStore.getState().printerId ?? DEFAULT_PRINTER_ID;
-  return resolveSpecs(LINEA_PARAMS, { ...(useBench.getState().params[SYSTEM_ID] ?? {}), printer });
+  const host = useStore.getState();
+  const printer = host.printerId ?? DEFAULT_PRINTER_ID;
+  return resolveSpecs(LINEA_PARAMS, { fit: host.fitGap, seat: host.seatClearance, ...(useBench.getState().params[SYSTEM_ID] ?? {}), printer });
 }
 
 const mapRun = (id: string, fn: (r: LineaDesign['runs'][number]) => LineaDesign['runs'][number]) => {

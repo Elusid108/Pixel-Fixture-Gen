@@ -59,7 +59,7 @@ export interface InstDims {
   par?: { R: number; L: number; capT: number; wall: number; lensR: number };
   mover?: { hw: number; H: number; lensR: number; jewelZ: number; baseW: number; baseD: number };
   blinder?: { cols: number; rows: number; cp: number; wH: number; dH: number; hz: number; seatZ: number; cupR: number; cells: [number, number][] };
-  batten?: { Lb: number; wB: number; hB: number; pitch: number; trimmed: boolean; diffW: number };
+  batten?: { Lb: number; wB: number; hB: number; pitch: number; trimmed: boolean; diffW: number; diffT: number; grooveW: number; grooveH: number };
 }
 
 /** Longest batten (body) that still prints with its yoke on this bed. */
@@ -68,7 +68,8 @@ function battenFit(dims: RigDims): number {
 }
 
 export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
-  const clampRi = dims.chordR + dims.fit + 0.05;
+  // Round fit over the chord; the C-ring's narrow opening is the snap, on top of the gap.
+  const clampRi = dims.chordR + dims.side;
   const clampRo = clampRi + CLAMP.wall;
   const stemEnd = clampRo + CLAMP.stemLen;
   const tol = dims.tol;
@@ -87,7 +88,8 @@ export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
       const zT = L * 0.45;
       return {
         ...base,
-        yokeWi: 2 * (R + 1.5) + 1,
+        // Trunnion stubs (1.5 mm each side) turn against the yoke arms with the fit gap.
+        yokeWi: 2 * (R + 1.5) + dims.fit,
         drop: Math.hypot(zT, R) + 1,
         zT,
         half: [R, R],
@@ -107,7 +109,7 @@ export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
       ...base,
       baseH: 10,
       panScrew: 20,
-      yokeWi: hw + 3 + 1,
+      yokeWi: hw + 3 + dims.fit,
       drop: Math.hypot(zT, hw / 2) + 1,
       zT,
       half: [hw / 2, hw / 2],
@@ -141,7 +143,7 @@ export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
     }
     return {
       ...base,
-      yokeWi: wH + 3 + 1,
+      yokeWi: wH + 3 + dims.fit,
       drop: Math.hypot(zT, dH / 2) + 1,
       zT,
       half: [wH / 2, dH / 2],
@@ -163,11 +165,12 @@ export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
   const px = Math.max(1, Math.min(dims.battenPxWanted, maxPx));
   const Lb = px * pitch + 2 * capM;
   const wB = sw + 0.6 + 2 * 2.4;
+  // Slide-in diffuser, 1 mm thick; its grooves are the fit gap wider and taller.
   const hB = 12;
   const zT = 3;
   return {
     ...base,
-    yokeWi: Lb + 1,
+    yokeWi: Lb + dims.fit,
     drop: Math.hypot(wB / 2, hB - zT) + 1,
     zT,
     half: [Lb / 2, wB / 2],
@@ -176,7 +179,7 @@ export function instDims(kind: InstrumentKind, dims: RigDims): InstDims {
     px,
     units: Math.round(px * pitch),
     pixels: Array.from({ length: px }, (_, i) => [(i - (px - 1) / 2) * pitch, 0, hB - 1.2] as Vec3),
-    batten: { Lb, wB, hB, pitch, trimmed: px < dims.battenPxWanted, diffW: sw + 0.6 + 2 - 0.4 },
+    batten: { Lb, wB, hB, pitch, trimmed: px < dims.battenPxWanted, diffW: sw + 2.2, diffT: 1, grooveW: sw + 2.2 + dims.fit, grooveH: 1 + dims.fit },
   };
 }
 

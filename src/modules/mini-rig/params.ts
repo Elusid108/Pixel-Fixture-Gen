@@ -1,3 +1,4 @@
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { bool, num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import type { ParamSpec, Params } from '../../types';
@@ -94,19 +95,7 @@ export const RIG_PARAMS: ParamSpec[] = [
     group: 'Truss',
     help: 'A 1:6 chain hoist body above every pick point. Hang it from a shelf with cord and run cord or ball chain down to the pick eye.',
   },
-  {
-    key: 'fit',
-    label: 'Joint clearance',
-    type: 'number',
-    default: 0.15,
-    min: 0,
-    max: 0.4,
-    step: 0.05,
-    unit: 'mm',
-    group: 'Fit',
-    help: 'Radial clearance on the chord couplers, the snap clamps and the diffuser lenses.',
-  },
-  { key: 'tol', label: 'Pixel seat clearance', type: 'number', default: 0.2, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+  ...FIT_PARAMS,
 ];
 
 export const rigParams = (given: Params = {}): Params => resolveSpecs(RIG_PARAMS, given);
@@ -132,7 +121,10 @@ export interface RigDims {
   frameBar: number;
   boltAt: number;
   boltOff: number;
+  /** Fit gap between mating printed parts, and half of it per side. */
   fit: number;
+  side: number;
+  /** Pixel seat clearance. */
   tol: number;
   exits: boolean;
   hoists: boolean;
@@ -155,9 +147,12 @@ export function rigDims(p: Params): RigDims {
   const chordD = num(p, 'chord');
   const chordR = chordD / 2;
   const W = TRUSS_W;
-  const fit = num(p, 'fit');
+  const fit = fitOf(p);
+  const side = sideOf(p);
   const sockR = chordR * 0.62;
-  const couplerR = sockR - fit;
+  // Round fit: the coupler is the chord socket less the fit gap across.
+  const couplerR = sockR - side;
+  const sockDepth = 6;
   const cat = (CATALOGUES[str(p, 'catalogue')] ?? CATALOGUES.f34).metres.map((m) => (m * 1000) / SCALE);
   const maxSection = bed.z;
   const frameBar = 7;
@@ -168,17 +163,19 @@ export function rigDims(p: Params): RigDims {
     c: W - chordD,
     boreR: chordR * 0.45,
     sockR,
-    sockDepth: 6,
+    sockDepth,
     couplerR,
     couplerIR: Math.max(0.8, couplerR - 0.9),
-    couplerLen: 11,
+    // It bottoms out in both sockets: half a gap short at each end.
+    couplerLen: 2 * sockDepth - fit,
     lacingR: Math.max(1.2, chordD * 0.19),
     frameT: 3,
     frameBar,
     boltAt: W / 2 - frameBar / 2,
     boltOff: 8,
     fit,
-    tol: num(p, 'tol'),
+    side,
+    tol: seatOf(p),
     exits: bool(p, 'exits'),
     hoists: bool(p, 'hoists'),
     catalogue: cat.filter((l) => l <= maxSection + 1e-6).sort((a, b) => b - a),

@@ -1,3 +1,4 @@
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { bool, num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import type { ParamSpec, Params } from '../../types';
@@ -20,9 +21,11 @@ export const FW_PARAMS: ParamSpec[] = [
   { key: 'depth', label: 'Backer depth', type: 'number', default: 32, min: 30, max: 50, step: 1, unit: 'mm', group: 'Backer', help: 'Wiring space behind the face plate. A 12 mm bullet node is 28 mm long.' },
   { key: 'plate', label: 'Face plate', type: 'number', default: 2.4, min: 1.6, max: 3, step: 0.2, unit: 'mm', group: 'Backer', help: 'Bullet nodes clip into 1.5–3 mm.' },
   { key: 'magnets', label: 'Magnet pockets', type: 'boolean', default: true, group: 'Backer', help: 'Two 6×3 mm magnets per tile edge pull neighbouring tiles into line.' },
-  { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.1, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
-  { key: 'fit', label: 'Snap clearance', type: 'number', default: 0.2, min: 0.1, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit', help: 'Slot clearance around the facet snap tabs. More is easier to fit and holds less.' },
+  ...FIT_PARAMS,
 ];
+
+/** Snap tab catch on the plate back, past the fit gap, mm. */
+export const SNAP = 0.3;
 
 export const fwParams = (given: Params = {}): Params => resolveSpecs(FW_PARAMS, given);
 
@@ -38,11 +41,16 @@ export interface FwDims {
   depth: number;
   plate: number;
   magnets: boolean;
+  /** Node seat clearance. */
   tol: number;
+  /** Fit gap between mating printed parts, and half of it per side. */
   fit: number;
+  half: number;
+  /** Snap tab barb: how far it reaches past the slot edge it catches, on top of the fit gap. */
+  barb: number;
   /** Lead between nodes on a factory strand, mm. */
   lead: number;
-  /** Seam gaps, mm: each facet and each backer outline is inset by these from the grid lines. */
+  /** Seam gaps, mm: each facet and each backer outline is inset by these from the grid lines (half the fit gap, so neighbours sit a fit gap apart). */
   facetGap: number;
   tileGap: number;
   rim: number;
@@ -61,11 +69,13 @@ export function fwDims(p: Params): FwDims {
     depth: num(p, 'depth'),
     plate: num(p, 'plate'),
     magnets: bool(p, 'magnets'),
-    tol: num(p, 'tol'),
-    fit: num(p, 'fit'),
+    tol: seatOf(p),
+    fit: fitOf(p),
+    half: sideOf(p),
+    barb: sideOf(p) + SNAP,
     lead: pixel.leadLength ?? 100,
-    facetGap: 0.4,
-    tileGap: 0.15,
+    facetGap: sideOf(p),
+    tileGap: sideOf(p),
     rim: 2,
   };
 }

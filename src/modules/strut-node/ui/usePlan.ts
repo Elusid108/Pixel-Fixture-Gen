@@ -1,15 +1,14 @@
 import { useMemo } from 'react';
 import { planDesign, snParams, type SnPlan } from '../plan';
-import { DEFAULT_PRINTER_ID } from '../../../printers';
 import type { Params } from '../../../types';
-import { useStore } from '../../../ui/store';
+import { useHostParams } from '../../shared/ui';
 import { useWorkbench } from './useSn';
 
-/** Resolved system params for the bench, with the header's printer. */
+/** Resolved system params for the bench, with the header's printer, fit gap and seat clearance. */
 export function useSnParams(): Params {
   const params = useWorkbench((s) => s.params);
-  const printerId = useStore((s) => s.printerId);
-  return useMemo(() => snParams({ ...params, printer: printerId ?? DEFAULT_PRINTER_ID }), [params, printerId]);
+  const host = useHostParams();
+  return useMemo(() => snParams({ ...host, ...params, printer: host.printer }), [params, host]);
 }
 
 /** The same analysis and data path the build worker computes, for the bench and inspector. */

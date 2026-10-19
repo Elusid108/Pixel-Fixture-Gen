@@ -4,6 +4,7 @@ import { Geo } from '../../geom/geo';
 import { mul, T } from '../../geom/mat';
 import { add, basis, cross, dist, rotMat4, scale } from '../../geom/vec';
 import type { FixtureDef, HardwareLine, Mat4, PartSpec, PixelPlacement, ScheduleLine } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { fmt, plural } from '../shared/layout';
 import { bodyPoint, CLAMP, YOKE, type Frame, type InstDims } from './instruments';
 import { KINDS, parseDesign, SIDE_LABEL, type InstrumentKind } from './model';
@@ -59,7 +60,7 @@ export const miniRig: FixtureDef = {
             [-h, -h],
           ])
             inst.push(basis(s.frame.up, s.frame.front, s.frame.d, add(add(add(s.A, scale(s.frame.d, sec.start - d.couplerLen / 2)), scale(s.frame.up, x)), scale(s.frame.front, y))));
-      parts.push({ id: 'coupler', name: 'Chord coupler', role: 'body', solid: couplerSolid(g, d), instances: inst, note: 'Four per section joint, half in each chord. Hollow: the wiring runs through. Print standing.' });
+      parts.push({ id: 'coupler', name: 'Chord coupler', role: 'body', solid: couplerSolid(g, d), instances: inst, note: `Four per section joint, half in each chord, ${mm(d.fit)} mm under the socket Ø and ${mm(d.side)} mm short of each socket floor. Hollow: the wiring runs through. Print standing.` });
     }
 
     /* ---- Corner blocks, by face set up to rotation ---- */
@@ -124,7 +125,7 @@ export const miniRig: FixtureDef = {
         role: 'body',
         solid: clampSolid(g, id0, d.chordD),
         instances: plan.instruments.map((i) => mul(M(i.pose.clamp), T(0, 0, -CLAMP.h / 2))),
-        note: `Snaps over a Ø${fmt(d.chordD)} chord between the lacing; the opening faces into the truss so the load hangs on the closed side. Print flat.`,
+        note: `Snaps over a Ø${fmt(d.chordD)} chord between the lacing; the opening faces into the truss so the load hangs on the closed side. Bore is the chord plus the ${mm(d.fit)} mm fit gap; the narrow opening is the snap. Print flat.`,
       });
     }
     const label = (k: InstrumentKind) => KINDS[k].label;
@@ -142,12 +143,12 @@ export const miniRig: FixtureDef = {
       if (kind === 'par') {
         parts.push({ id: 'par-can', name: 'PAR can', role: 'body', solid: parBody(g, id, d), instances: list.map(bodyAt), note: 'Print standing on its back. The jewel seats in the back cap; its tail leaves through the centre hole.' });
         const lz = id.par!.L - 1.2;
-        parts.push({ id: 'par-lens', name: 'PAR lens', role: 'diffuser', solid: lensSolid(g, id.par!.lensR, d.fit), instances: list.map((i) => mul(bodyAt(i), T(0, 0, lz))), note: 'Natural PETG, 1 mm. Press into the mouth of the can.' });
+        parts.push({ id: 'par-lens', name: 'PAR lens', role: 'diffuser', solid: lensSolid(g, id.par!.lensR, d.fit), instances: list.map((i) => mul(bodyAt(i), T(0, 0, lz))), note: `Natural PETG, 1 mm, ${mm(d.fit)} mm under the mouth Ø. Drop into the mouth of the can and fix with a dot of clear glue.` });
       } else if (kind === 'mover') {
         parts.push({ id: 'mover-base', name: 'Mover base', role: 'body', solid: moverBase(g, id), instances: list.map((i) => M(i.pose.base!)), note: 'Print flat. Sits between the clamp and the yoke; the pan screw passes through.' });
         parts.push({ id: 'mover-head', name: 'Mover head', role: 'body', solid: moverHead(g, id, d), instances: list.map(bodyAt), note: 'Print standing on its back. Jewel under the lens; tail out of the back.' });
         const lz = id.mover!.H - 1.2;
-        parts.push({ id: 'mover-lens', name: 'Mover lens', role: 'diffuser', solid: lensSolid(g, id.mover!.lensR, d.fit), instances: list.map((i) => mul(bodyAt(i), T(0, 0, lz))), note: 'Natural PETG, 1 mm. Press into the front of the head.' });
+        parts.push({ id: 'mover-lens', name: 'Mover lens', role: 'diffuser', solid: lensSolid(g, id.mover!.lensR, d.fit), instances: list.map((i) => mul(bodyAt(i), T(0, 0, lz))), note: `Natural PETG, 1 mm, ${mm(d.fit)} mm under the mouth Ø. Drop into the front of the head and fix with a dot of clear glue.` });
       } else if (kind === 'blinder2' || kind === 'blinder4') {
         parts.push({
           id: `${kind}-body`,
@@ -215,6 +216,52 @@ export const miniRig: FixtureDef = {
       hardware.push({ item: '3-core silicone wire, 30 AWG', qty: Math.ceil(m * 1.1 * 10) / 10, note: `Metres. Runs inside the chords (Ø${fmt(2 * d.boreR)} bore) and through the couplers.` });
     }
 
-    return { parts, pixels, schedule, hardware, warnings: [...plan.warnings] };
+    const lenses = idsOf(parts, 'par-lens', 'mover-lens', 'batten-diffuser');
+    const bodies = idsOf(parts, 'par-can', 'mover-head', 'blinder2-body', 'blinder4-body', 'batten-body');
+    const assembly = steps(parts, [
+      {
+        title: 'Set the inserts',
+        parts: idsOf(parts, 'block-'),
+        hardware: blockFaces ? `${2 * blockFaces}× M3 heat-set insert` : undefined,
+        note: 'Two inserts per used face, in opposite holes of the pinwheel.',
+      },
+      sectionSection > 0 && {
+        title: 'Couple the sections',
+        parts: [...idsOf(parts, 'section-'), 'coupler'],
+        hardware: `${2 * sectionSection}× M3×10 + nut`,
+        note: `Push a coupler halfway into each chord socket, close the next section onto it and bolt the end frames. Couplers are ${mm(d.fit)} mm under the socket Ø.`,
+      },
+      {
+        title: 'Bolt the runs to the corner blocks',
+        parts: [...idsOf(parts, 'section-'), ...idsOf(parts, 'block-')],
+        hardware: sectionBlock ? `${2 * sectionBlock}× M3×8` : undefined,
+        note: 'Feed the wiring through the chord bores and the block chambers as you go.',
+      },
+      {
+        title: 'Base plates and pick points',
+        parts: idsOf(parts, 'base-plate', 'pick-eye', 'hoist'),
+        hardware: [bases.length && `${2 * bases.length}× M3×10 countersunk`, picks.length && `${2 * picks.length}× M3×8`].filter(Boolean).join(', ') || undefined,
+        note: `Blocks drop into the base plate rim (${mm(d.fit)} mm fit gap) and bolt from below; pick eyes bolt to block tops.`,
+      },
+      {
+        title: 'Build the instruments',
+        parts: [...bodies, ...lenses],
+        note: `Seat the jewels, lamps and strips (${mm(d.tol)} mm seat clearance), then the lenses and diffusers: the batten diffuser slides into its grooves, ${mm(d.fit)} mm wider and taller than it is.`,
+      },
+      {
+        title: 'Yokes',
+        parts: [...idsOf(parts, 'yoke-'), ...bodies, ...idsOf(parts, 'mover-base')],
+        hardware: tilt ? `${tilt}× M3×6` : undefined,
+        note: `Tilt screws through the yoke arms into the body; the arms clear the trunnions by ${mm(d.side)} mm a side.`,
+      },
+      {
+        title: 'Clip on and patch',
+        parts: ['clamp', ...idsOf(parts, 'yoke-')],
+        hardware: [...pan.entries()].map(([L, q]) => `${q}× M3×${L}`).join(', ') || undefined,
+        note: 'Snap each clamp over its chord, opening into the truss, and fix the yoke with the pan screw. Plug the instruments in data order.',
+      },
+    ]);
+
+    return { parts, pixels, schedule, hardware, warnings: [...plan.warnings], assembly };
   },
 };

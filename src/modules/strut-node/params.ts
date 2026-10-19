@@ -1,4 +1,5 @@
 import { num, str } from '../../fixtures/util';
+import { fitOf, FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import { getPixel, type PixelType } from '../../pixels/library';
 import { BED_MARGIN, getPrinter, PRINTERS } from '../../printers';
 import type { ParamSpec, Params } from '../../types';
@@ -33,7 +34,7 @@ export const SN_PARAMS: ParamSpec[] = [
     group: 'Hubs',
     help: 'Type IDs let identical hubs print as one part ×N. Unique IDs make every hub its own part.',
   },
-  { key: 'fit', label: 'Spigot clearance', type: 'number', default: 0.2, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+  ...FIT_PARAMS,
 ];
 
 export interface SpineDims {
@@ -64,7 +65,15 @@ export interface SnDims {
   spigR: number;
   coreR: number;
   insert: number;
+  /** Total fit gap between mating printed parts, and half of it per side. */
   fit: number;
+  side: number;
+  /** Dowel hole radius in the split hub halves: Ø3 pin + fit. */
+  pinR: number;
+  /** Axial gap between each spine end and its key-slot floor. */
+  keyGap: number;
+  /** Pixel seat clearance (strip recess, node trough). */
+  seat: number;
   labels: LabelMode;
   overhangDeg: number;
   maxOffset: number;
@@ -88,14 +97,17 @@ export function snDims(p: Params): SnDims {
   const tubeR = num(p, 'tubeOD') / 2;
   const wall = num(p, 'lineW') * num(p, 'tubeLines');
   const tubeIR = tubeR - wall;
-  const fit = num(p, 'fit');
-  const spigR = tubeIR - fit;
+  const fit = fitOf(p);
+  const side = sideOf(p);
+  // Round fit: the tube bore is the female, so the spigot is Ø(bore − fit).
+  const spigR = tubeIR - side;
   const collarR = tubeR;
   const coreR = Math.max(num(p, 'core'), collarR + 4);
   const labels = (str(p, 'labels') as LabelMode) ?? 'types';
   const labelH = 3;
   const labelBand = labels === 'none' ? 3 : 2 * labelH + 1 + 2.5;
-  const inner = tubeIR - 0.3;
+  // The spine slides inside the tube bore: keep its reach a fit gap under the bore.
+  const inner = tubeIR - side;
 
   let spine: SpineDims;
   if (pixel.shape.kind === 'strip') {
@@ -113,7 +125,7 @@ export function snDims(p: Params): SnDims {
       w,
       fBottom,
       fBarTop,
-      recessW: sw + 0.6,
+      recessW: sw + 2 * seatOf(p),
       recessD,
       troughR: 0,
       troughF: 0,
@@ -136,7 +148,7 @@ export function snDims(p: Params): SnDims {
       fBarTop: troughF,
       recessW: 0,
       recessD: 0,
-      troughR: r + 0.2,
+      troughR: r + seatOf(p),
       troughF,
       grooveW: 3.5,
       grooveD: 1.5,
@@ -144,7 +156,7 @@ export function snDims(p: Params): SnDims {
     };
   }
 
-  const plugR = tubeIR - fit;
+  const plugR = tubeIR - side;
   return {
     pixel,
     nodePitch: num(p, 'nodePitch'),
@@ -156,6 +168,10 @@ export function snDims(p: Params): SnDims {
     coreR,
     insert: num(p, 'insert'),
     fit,
+    side,
+    pinR: 1.5 + side,
+    keyGap: side,
+    seat: seatOf(p),
     labels,
     overhangDeg: num(p, 'overhang'),
     maxOffset: num(p, 'maxOffset'),

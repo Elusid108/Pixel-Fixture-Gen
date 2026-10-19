@@ -1,3 +1,4 @@
+import { FIT_PARAMS } from '../../fit';
 import type { ParamSpec } from '../../types';
 import { DESIGN_PARAM, PRINTER_PARAM } from '../shared/params';
 
@@ -41,5 +42,5 @@ export const HW_PARAMS: ParamSpec[] = [
   { key: 'magnets', label: 'Magnet pockets', type: 'boolean', default: true, group: 'Joinery', help: 'Two 6×3 mm pockets per edge. Trimmed edges drop them.' },
   { key: 'bowties', label: 'Bowtie keys', type: 'boolean', default: true, group: 'Joinery', help: 'One printed key per seam, in pockets on the back.' },
   { key: 'rail', label: 'Wall cleat rail', type: 'boolean', default: true, group: 'Mounting', help: 'Printed rails with hanger studs that drop into each tile’s keyholes. Off: two screws per tile.' },
-  { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.1, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+  ...FIT_PARAMS,
 ];

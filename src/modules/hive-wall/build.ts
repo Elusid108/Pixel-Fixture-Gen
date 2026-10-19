@@ -7,8 +7,9 @@ import { add, scale } from '../../geom/vec';
 import { fromPlane, planeNormal } from '../../sketch/geom';
 import type { Vec2 } from '../../sketch/types';
 import type { FixtureDef, HardwareLine, Mat4, PartSpec, PixelPlacement, ScheduleLine, Vec3 } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { plural, planeFrame } from '../shared/layout';
-import { fromLattice, GAP, layoutWall, RAIL, toLattice, type HwDims, type HwSlot } from './layout';
+import { fromLattice, layoutWall, RAIL, toLattice, type HwDims, type HwSlot } from './layout';
 import { parseDesign, type HwDesign } from './model';
 import { HW_PARAMS } from './params';
 
@@ -37,22 +38,64 @@ function regionAt(g: Geo, design: HwDesign, s: HwSlot): CrossSection {
 }
 
 /**
+ * Joint features the shared Hive tile (src/fixtures/hive.ts) cuts at fixed sizes. The wall
+ * fits its own printed parts to them with the fit gap.
+ * - Bowtie pocket: `halfBowtie(8, 14, 10)` in from each tile edge, 2 mm deep into the back.
+ * - Keyhole: `Geo.keyhole` defaults, Ø9 entry and a 4.6 mm slot.
+ */
+export const HIVE_POCKET = { waist: 8, wide: 14, len: 10, depth: 2 };
+export const HIVE_KEYHOLE = { head: 9, shank: 4.6 };
+
+/**
+ * Bowtie key for one seam, waist on the origin and lengths along ±Y (the frame `g.bowtie`
+ * uses). It is the two facing pockets plus the seam between them, shrunk by half the fit gap
+ * on every side, so the key has the full fit gap across the pockets. It bottoms out, so it is
+ * half the gap thinner than the pocket is deep.
+ */
+export function bowtieKey(g: Geo, d: Pick<HwDims, 'gap' | 'side'>): Manifold {
+  const { waist, wide, len, depth } = HIVE_POCKET;
+  const half = g.halfBowtie(waist, wide, len);
+  const both = g.CS.union([half.translate([0, d.gap / 2]), half.rotate(180).translate([0, -d.gap / 2]), g.rect(waist, d.gap + 0.02, 0, 0)]);
+  return g.extrude(d.side > 0 ? both.offset(-d.side, 'Miter', 2) : both, 0, depth - d.side);
+}
+
+/**
+ * Tile layers that drop into the shell (carrier, baffle, diffuser), the fit gap smaller across
+ * than the shell's inner hex. Built here rather than taken from hiveTileSolids, which uses its
+ * own fixed clearances.
+ */
+function fittedLayers(g: Geo, d: HwDims, socket: Manifold) {
+  const inner = g.hex(d.Ai - d.side);
+  const carrier = g.cut(
+    g.extrude(inner, 0, d.carrierT),
+    d.cells.map(([x, y]) => g.place(socket, T(x, y, d.carrierT))),
+  );
+  const cellHoles = g.CS.union(d.cells.map(([x, y]) => g.hex(d.cellIn, false, x, y)));
+  const baffleCS = inner.subtract(cellHoles);
+  return { carrier, baffleCS, baffle: g.extrude(baffleCS, 0, d.zDiff - d.zBaffle), diffuser: g.extrude(inner, 0, d.Hs - d.zDiff) };
+}
+
+/**
  * A printed cleat rail with `n` hanger studs on the tile pitch. Printed flat, studs up: each stud
  * is a shank that fits the keyhole slot and a head that drops through its entry, with a 45°
  * cone under the head so it prints without support. Countersunk screw holes either side of
- * every stud fix it to the wall.
+ * every stud fix it to the wall. Shank and head are the keyhole's slot and entry less the fit
+ * gap, and the head clears the tile floor by the fit gap.
  */
-function railSolid(g: Geo, d: HwDims, n: number, len: number): Manifold {
+export function railSolid(g: Geo, d: HwDims, n: number, len: number): Manifold {
   const t = RAIL.t;
-  const zc = t + d.floorT + 0.4;
+  const zc = t + d.floorT + d.gap;
+  const shank = HIVE_KEYHOLE.shank / 2 - d.side;
+  const head = HIVE_KEYHOLE.head / 2 - d.side;
+  const cone = head - shank;
   const stud = g.revolve(
     [
       [0, t - 0.5],
-      [2.0, t - 0.5],
-      [2.0, zc],
-      [4.2, zc + 2.2],
-      [4.2, zc + 3.2],
-      [0, zc + 3.2],
+      [shank, t - 0.5],
+      [shank, zc],
+      [head, zc + cone],
+      [head, zc + cone + 1],
+      [0, zc + cone + 1],
     ],
     24,
   );
@@ -94,12 +137,13 @@ export const hiveWall: FixtureDef = {
       wall: d.wall,
       magnets: d.magnets,
       bowties: d.bowties,
-      tol: d.tol,
+      tol: d.seat,
       pixel: d.pixel,
       keyholeY: [-d.keyY, d.keyY],
       label: null,
     });
-    const { A, Ai, Al, zLedge, zBaffle, zDiff, Hs, carrierT, wall, size } = d;
+    const { A, Ai, Al, zLedge, zBaffle, zDiff, Hs, carrierT, wall, size, side } = d;
+    const layers = fittedLayers(g, d, tile.socket);
     const parts: PartSpec<Manifold>[] = [];
 
     /* ---------- Whole tiles: one set of layers ×N ---------- */
@@ -108,9 +152,9 @@ export const hiveWall: FixtureDef = {
       const shell = tile.shell.subtract(hiveLabel(g, `M1 ${d.cells.length}`, 0, -A * 0.18));
       parts.push(
         { id: 'shell', name: `Back shell ${size}`, role: 'body', solid: shell, instances: whole.map((t) => at(t.slot, 0)), explode: ex(-1), note: 'Print back down. Magnets and wire notches on all six edges.' },
-        { id: 'carrier', name: `Pixel carrier ${size}`, role: 'body', solid: tile.carrier, instances: whole.map((t) => at(t.slot, zLedge)), explode: ex(0.6) },
-        { id: 'baffle', name: `Honeycomb baffle ${size}`, role: 'baffle', solid: tile.baffle, instances: whole.map((t) => at(t.slot, zBaffle)), explode: ex(1.4) },
-        { id: 'diffuser', name: `Opal diffuser ${size}`, role: 'diffuser', solid: tile.diffuser, instances: whole.map((t) => at(t.slot, zDiff)), explode: ex(2.4) },
+        { id: 'carrier', name: `Pixel carrier ${size}`, role: 'body', solid: layers.carrier, instances: whole.map((t) => at(t.slot, zLedge)), explode: ex(0.6) },
+        { id: 'baffle', name: `Honeycomb baffle ${size}`, role: 'baffle', solid: layers.baffle, instances: whole.map((t) => at(t.slot, zBaffle)), explode: ex(1.4) },
+        { id: 'diffuser', name: `Opal diffuser ${size}`, role: 'diffuser', solid: layers.diffuser, instances: whole.map((t) => at(t.slot, zDiff)), explode: ex(2.4) },
       );
     }
 
@@ -130,13 +174,14 @@ export const hiveWall: FixtureDef = {
       let shell = cleanM(g, g.union([tile.shell, rim]).intersect(g.extrude(cx, -1, Hs + 1)));
       if (pc.labelAt) shell = shell.subtract(hiveLabel(g, pc.id, pc.labelAt[0], pc.labelAt[1]));
 
-      const inner = cleanCS(g, inset(wall + 0.3));
+      // Layers sit half the fit gap inside the closing wall and the shell's inner hex.
+      const inner = cleanCS(g, inset(wall + side));
       const carrier = g.cut(
-        g.extrude(cleanCS(g, inner.intersect(g.hex(Ai - 0.3))), 0, carrierT),
+        g.extrude(cleanCS(g, inner.intersect(g.hex(Ai - side))), 0, carrierT),
         s.cells.map(([x, y]) => g.place(tile.socket, T(x, y, carrierT))),
       );
-      const baffle = g.extrude(cleanCS(g, tile.baffleCS.intersect(inner)), 0, zDiff - zBaffle);
-      const diffuser = g.extrude(cleanCS(g, g.hex(Ai - 0.25).intersect(inset(wall + 0.25))), 0, Hs - zDiff);
+      const baffle = g.extrude(cleanCS(g, layers.baffleCS.intersect(inner)), 0, zDiff - zBaffle);
+      const diffuser = g.extrude(cleanCS(g, g.hex(Ai - side).intersect(inner)), 0, Hs - zDiff);
       const lid = `${pc.id.toLowerCase()}`;
       const note = `Edge tile ${pc.id}: ${plural(pc.cells, 'cell')}, ${Math.round(pc.ratio * 100)} % of a tile. Closing wall along the cut.`;
       parts.push(
@@ -153,8 +198,8 @@ export const hiveWall: FixtureDef = {
         id: 'bowtie',
         name: 'Bowtie key',
         role: 'body',
-        solid: tile.key,
-        instances: L.seams.map((sm) => mul(at(L.bySlot.get(sm.a)!, 0), Rz(30 + 60 * sm.k), T(A + GAP / 2, 0, 0), Rz(90), T(0, 0, -0.01))),
+        solid: bowtieKey(g, d),
+        instances: L.seams.map((sm) => mul(at(L.bySlot.get(sm.a)!, 0), Rz(30 + 60 * sm.k), T(A + d.gap / 2, 0, 0), Rz(90), T(0, 0, -0.01))),
         explode: ex(-1.6),
         note: 'One per seam, pressed into the back pockets. Key tiles into panels, then hang them.',
       });
@@ -210,6 +255,42 @@ export const hiveWall: FixtureDef = {
     // Air around the nodes: the inner hex (area 2√3·a²) times wiring space plus baffle depth, per tile.
     const tileArea = 2 * SQ3 * Ai * Ai;
     const enclosure = L.tiles.reduce((v, t) => v + (t.kind === 'full' ? 1 : t.slot.ratio) * tileArea * (zLedge - d.floorT + (zDiff - zBaffle)), 0) / 1000;
-    return { parts, pixels, schedule, hardware, warnings, enclosureCm3: enclosure };
+    const layer = (k: string) => idsOf(parts, (id) => id === k || id.endsWith(`-${k}`));
+    const assembly = steps(parts, [
+      {
+        title: 'Load the carriers',
+        parts: layer('carrier'),
+        note: `Push a node through each socket from the back and chain them in the serpentine order shown on the Data tab. Sockets have ${mm(d.seat)} mm seat clearance.`,
+      },
+      {
+        title: 'Fit the shells',
+        parts: layer('shell'),
+        hardware: `${d.magnets && L.seams.length ? `${4 * L.seams.length}× 6×3 magnet, ` : ''}${L.tiles.length}× JST-SM pigtail pair`,
+        note: `${d.magnets ? 'Glue the magnets in, left pocket N-out and right pocket S-out on every edge. ' : ''}Lead each tile's pigtails out through the edge notches.`,
+      },
+      {
+        title: 'Stack the layers',
+        parts: [...layer('carrier'), ...layer('baffle'), ...layer('diffuser')],
+        note: `Carrier onto the ledge, baffle on the carrier, diffuser on top. Each layer is ${mm(d.gap)} mm (the fit gap) smaller across than the shell, so it drops in.`,
+      },
+      d.bowties && {
+        title: 'Key the tiles together',
+        parts: ['bowtie'],
+        note: `Lay the tiles face down in their layout, ${mm(d.gap)} mm apart, and press a bowtie key into the back pockets across every seam.`,
+      },
+      d.rail && {
+        title: 'Hang the rails',
+        parts: idsOf(parts, 'rail-'),
+        hardware: `${2 * studs}× 4×30 countersunk screw + plug`,
+        note: 'Screw the rails to the wall level, studs out, where the layout puts them.',
+      },
+      {
+        title: 'Hang the tiles',
+        parts: layer('shell'),
+        hardware: d.rail ? undefined : 'Two pan-head screws + plugs per tile',
+        note: `${d.rail ? `Drop each tile's keyholes over two studs and slide it ${RAIL.drop} mm down.` : 'Hang each tile on its two keyholes.'} Plug each tile into the one before it, starting at ${L.tiles[0].unit}.`,
+      },
+    ]);
+    return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3: enclosure };
   },
 };

@@ -273,7 +273,7 @@ export function analyze(design: SnDesign, dims: SnDims): Analysis {
     const { ridge } = dims.coupler;
     const tubeSegs = Math.max(1, Math.ceil((cut + ridge) / (dims.bed.z - 1 + ridge)));
     const tubeSegLen = (cut - (tubeSegs - 1) * ridge) / tubeSegs;
-    const spineLen = Math.max(10, cut - 2 * dims.insert + 2 * dims.slotDepth - 1);
+    const spineLen = Math.max(10, cut - 2 * dims.insert + 2 * dims.slotDepth - 2 * dims.keyGap);
     const maxSpine = Math.max(dims.bed.x, dims.bed.y) - 2;
     const spineSegs = Math.max(1, Math.ceil(spineLen / maxSpine));
     return { id: letters(i), cut, dark: members[0].dark, px: members[0].px, members: members.map((m) => m.id), tubeSegs, tubeSegLen, spineLen, spineSegs, spineSegLen: spineLen / spineSegs };
@@ -351,10 +351,10 @@ export function analyze(design: SnDesign, dims: SnDims): Analysis {
     }
     if (c.split.bolt.clearance < 0) warnings.push(`Hub ${c.id}: the M3 bolt runs close to a socket. Check the bolt path in the slicer.`);
   }
-  if (dims.spine.reach > dims.tubeIR - 0.3) warnings.push(`The ${dims.pixel.name} spine does not fit inside a Ø${(dims.tubeR * 2).toFixed(0)} tube. Use a larger tube.`);
+  if (dims.spine.reach > dims.tubeIR - dims.side + 1e-6) warnings.push(`The ${dims.pixel.name} spine does not fit inside a Ø${(dims.tubeR * 2).toFixed(0)} tube. Use a larger tube.`);
   if (dims.spine.reach > dims.coupler.boreR && types.some((t) => t.tubeSegs > 1 && !t.dark))
     warnings.push(`Split struts: the spine and pixels are wider than the coupler bore (Ø${(dims.coupler.boreR * 2).toFixed(1)}). Slide couplers on before the spine, or use a larger tube.`);
-  const spineMax = (dims.spine.w / 2 + 0.2) ** 2 + Math.max(dims.spine.fBottom ** 2, dims.spine.fBarTop ** 2);
+  const spineMax = (dims.spine.w / 2 + dims.side) ** 2 + Math.max((dims.spine.fBottom - dims.side) ** 2, (dims.spine.fBarTop + dims.side) ** 2);
   if (Math.sqrt(spineMax) > dims.spigR - 0.8) warnings.push('The spine key slot breaks through the spigot wall. Use a larger tube.');
 
   return { dims, hubs, struts: infos, types, classes, centroid, requiredAngle: req, warnings };

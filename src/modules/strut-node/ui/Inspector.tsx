@@ -4,6 +4,7 @@ import { SN_PARAMS } from '../params';
 import type { SnPlan } from '../plan';
 import type { ParamSpec, Vec3 } from '../../../types';
 import { Field } from '../../../ui/Inspector';
+import { SystemFit } from '../../shared/ui';
 import { useSnParams, useSnPlan } from './usePlan';
 import { useWorkbench } from './useSn';
 
@@ -74,6 +75,7 @@ function DesignPanel({ plan }: { plan: SnPlan }) {
           ))}
         </fieldset>
       ))}
+      <SystemFit />
       <button className="ghost" onClick={reset}>
         Reset system settings
       </button>
