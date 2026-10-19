@@ -155,7 +155,9 @@ function PlaneGrid({ plane, step }: { plane: SketchPlane; step: number }) {
 const DRAW_TOOLS = new Set(['draw:line', 'draw:rect', 'draw:circle', 'draw:polygon', 'draw:arc', 'draw:free']);
 
 function rubberBand(tool: string, pts: Vec3[], cursor: Vec3 | null, plane: SketchPlane, sides: number): Vec3[] {
-  if (!cursor || !pts.length) return [];
+  if (!pts.length) return [];
+  // No hover on touch: still show the points placed so far as a line.
+  if (!cursor) return tool === 'draw:line' || tool === 'draw:arc' ? pts : [];
   const P = (p: Vec3) => toPlane(p, plane);
   const L = (q: Vec2[], close = true) => (close ? [...q, q[0]] : q).map((p) => fromPlane(p, plane));
   const c = P(pts[0]);

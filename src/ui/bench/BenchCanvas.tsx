@@ -7,6 +7,7 @@ import { designOf, useBench } from '../../workbench/store';
 import { getUI } from '../../workbench/uis';
 import { usePlates } from '../PartsPanel';
 import { useStore } from '../store';
+import { touchFriendlyEvents } from '../touch';
 import { CameraRig, PartMesh, Pixels, PlateScene, SceneBasics, plateFrame, useGeometries, useMaterials } from '../Viewer';
 import { toWorld } from './util';
 
@@ -55,6 +56,7 @@ export function BenchCanvas({ children }: { children?: ReactNode }) {
       camera={{ fov: 35, position: [600, 500, 800] }}
       dpr={[1, 2]}
       gl={{ antialias: true }}
+      events={touchFriendlyEvents}
       onPointerMissed={(e) => {
         if (e.button === 0 && !tool.startsWith('draw:') && !ui.tools.find((t) => t.id === tool)?.plane) useBench.getState().select(null);
       }}

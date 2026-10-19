@@ -286,6 +286,7 @@ input[type='range'] {
 .notes {
   max-height: 60%;
   overflow-y: auto;
+  z-index: 30;
 }
 .notes li.toggle {
   pointer-events: auto;
@@ -517,7 +518,7 @@ td.bad {
 
 .export {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 22px;
 }
 .export p {
@@ -887,59 +888,6 @@ button.small.primary {
   color: var(--amber);
 }
 
-/* ---- Narrow screens: stack everything ---- */
-@media (max-width: 980px) {
-  .app {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto auto;
-    grid-template-areas: 'top' 'cat' 'stage' 'insp';
-    height: auto;
-  }
-  .topbar {
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 8px 16px;
-    height: auto;
-  }
-  .catalog {
-    display: flex;
-    overflow-x: auto;
-    gap: 8px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 8px 16px;
-  }
-  .catalog section {
-    display: contents;
-  }
-  .catalog h3,
-  .fixture-card.planned,
-  .fixture-card .tag {
-    display: none;
-  }
-  .fixture-card {
-    width: auto;
-    flex: none;
-    border-color: var(--line);
-  }
-  .stage {
-    grid-template-rows: auto 60vh auto;
-  }
-  .viewbar {
-    flex-wrap: wrap;
-    padding: 8px 16px;
-    gap: 10px;
-  }
-  .drawer {
-    max-height: none;
-  }
-  .inspector {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 16px;
-  }
-}
-
 /* ---- Workbench ---- */
 .topbar .brand + .mode {
   margin-left: 18px;
@@ -1097,4 +1045,629 @@ tr.dark-run td {
 .inspector .buttons {
   align-items: center;
   margin: 10px 0;
+}
+
+/* ---- 3D view: touch gestures belong to the canvas, not the page ---- */
+.canvas-wrap,
+.canvas-wrap * {
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* ---- Buttons over the bench view (drawing, and touch stand-ins for keys) ---- */
+.canvas-actions {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 30; /* over the bench's in-view labels (drei Html, z-index up to 20) */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+.ca-hint {
+  margin: 0;
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--dim);
+  background: rgba(11, 11, 16, 0.82);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 4px 9px;
+}
+.ca-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ca-row > * {
+  pointer-events: auto;
+}
+.canvas-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: rgba(24, 24, 34, 0.94);
+  color: var(--text);
+  font-weight: 500;
+}
+.canvas-actions button.primary {
+  background: var(--grad);
+  border: 0;
+  color: #06060a;
+  font-weight: 600;
+}
+.canvas-actions .seg {
+  background: rgba(24, 24, 34, 0.94);
+}
+.canvas-actions .seg button {
+  border: 0;
+  background: none;
+  min-width: 38px;
+  padding: 0 10px;
+  font-family: var(--mono);
+}
+.canvas-actions .seg button.on {
+  background: var(--line-2);
+}
+.canvas-actions button.shift.on {
+  border-color: var(--amber);
+  color: var(--amber);
+  box-shadow: inset 0 0 0 1px var(--amber);
+}
+
+/* ---- Compact shell: phones and tablets (the app picks it below 980 px) ---- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 8px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--dim);
+  flex: none;
+}
+.icon-btn.on {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--line-2);
+}
+.printer-grid button.on {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 0 1px var(--cyan);
+}
+
+@media (max-width: 980px) {
+  html,
+  body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  /* Pan and scroll, but no page pinch or double-tap zoom. The canvas opts out above. */
+  * {
+    touch-action: pan-x pan-y;
+  }
+  .canvas-wrap,
+  .canvas-wrap * {
+    touch-action: none;
+  }
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  button {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+.app.phone {
+  --sheet-h: 44vh;
+  --sheet-h: 44dvh;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) 0 auto;
+  grid-template-areas: 'top' 'stage' 'sheet' 'tabs';
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.app.phone.has-sheet {
+  grid-template-rows: auto minmax(0, 1fr) var(--sheet-h) auto;
+}
+
+/* Top bar */
+.phone .topbar {
+  gap: 8px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) 8px 0 12px;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+.phone .topbar .brand + .mode {
+  margin-left: 4px;
+}
+.phone .mode button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+.phone .topbar .status {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* View and its toolbar */
+.phone .stage {
+  grid-area: stage;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.phone .viewbar {
+  flex: none;
+  min-height: 50px;
+  padding: 5px 10px;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.phone .viewbar::-webkit-scrollbar {
+  display: none;
+}
+.phone .viewbar > * {
+  flex: none;
+}
+.phone .viewbar input[type='range'] {
+  width: 120px;
+}
+.phone .wb-hint {
+  display: none;
+}
+.phone .canvas-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.phone .canvas-actions button {
+  min-height: 40px;
+}
+.phone .canvas-actions .seg button {
+  min-width: 42px;
+}
+.phone .notes li {
+  max-width: 100%;
+  font-size: 12px;
+}
+
+/* The sheet: one panel at a time, docked under the view */
+.bsheet {
+  grid-area: sheet;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--line-2);
+  border-radius: 14px 14px 0 0;
+  box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.5);
+  position: relative;
+  z-index: 5;
+}
+.app.phone.sheet-full .bsheet {
+  grid-row: 2 / 4;
+  border-radius: 0;
+}
+.bsheet-head {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px 2px 14px;
+  border-bottom: 1px solid var(--line);
+  touch-action: none;
+  cursor: grab;
+}
+.bsheet-head .grip {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 38px;
+  height: 4px;
+  margin-left: -19px;
+  border-radius: 2px;
+  background: var(--line-2);
+}
+.bsheet-head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bsheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 14px 24px;
+}
+.bsheet .catalog,
+.bsheet .inspector {
+  grid-area: auto;
+  overflow: visible;
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.bsheet .catalog h3:first-child {
+  margin-top: 4px;
+}
+.bsheet .inspector header h2 {
+  font-size: 18px;
+}
+.setup h4 {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+.setup .printer-grid {
+  margin-bottom: 18px;
+}
+.setup .global-fit {
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+/* Bottom tab bar */
+.tabbar {
+  grid-area: tabs;
+  display: flex;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+  position: relative;
+  z-index: 7;
+}
+.tabbar button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 6px 2px 5px;
+  background: none;
+  border: 0;
+  color: var(--faint);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+.tabbar button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tabbar button.on {
+  color: var(--text);
+}
+.tabbar button.on svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 6px rgba(47, 212, 255, 0.45));
+}
+
+/* Thumb-sized controls */
+.phone .seg button {
+  min-height: 40px;
+  padding: 0 12px;
+}
+.phone select,
+.phone input[type='number'],
+.phone input[type='text'],
+.phone input:not([type]),
+.phone .sk-text,
+.phone .xyz input {
+  min-height: 40px;
+  font-size: 16px; /* below 16 px iOS zooms the page on focus */
+}
+.phone .num-input {
+  width: 80px;
+}
+.phone .buttons button,
+.phone button.ghost,
+.phone button.small,
+.phone .sk-file {
+  min-height: 40px;
+}
+.phone .sk-file {
+  display: inline-flex;
+  align-items: center;
+}
+.phone .fit-controls .ghost.small {
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+.phone .fixture-card {
+  min-height: 48px;
+  padding: 10px;
+}
+.phone .fixture-card.planned,
+.phone kbd {
+  display: none;
+}
+.phone .sketch .sk-tools {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+.phone .sketch .sk-tools button {
+  min-height: 40px;
+  justify-content: center;
+  font-size: 13px;
+}
+.phone .sk-row {
+  gap: 8px 10px;
+}
+.phone .sk-row .seg button {
+  padding: 0 12px;
+  font-size: 13px;
+}
+.phone .sk-check {
+  min-height: 40px;
+  gap: 8px;
+  font-size: 13px;
+}
+.phone input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--cyan);
+}
+.phone .field {
+  margin: 10px 0 14px;
+}
+.phone .field.toggle {
+  min-height: 40px;
+}
+.phone .field.toggle input {
+  width: 48px;
+  height: 40px;
+  top: 0;
+}
+.phone .switch {
+  width: 42px;
+  height: 24px;
+}
+.phone .switch::after {
+  width: 20px;
+  height: 20px;
+}
+.phone .field.toggle input:checked + .switch::after {
+  transform: translateX(18px);
+}
+.phone input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 36px;
+  margin: 0;
+  background: transparent;
+  touch-action: pan-y;
+}
+.phone input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2);
+}
+.phone input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 4px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--cyan);
+}
+.phone input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-2);
+}
+.phone input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cyan);
+}
+.phone input[type='range']::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 4px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--cyan);
+}
+
+/* Tables scroll sideways inside the sheet, with the first column pinned */
+.phone .table-wrap {
+  margin: 0 -14px;
+  padding: 0 14px;
+  overscroll-behavior-x: contain;
+}
+.phone .schedule .table-wrap table {
+  min-width: 760px;
+}
+.phone .parts .table-wrap table {
+  min-width: 560px;
+}
+.phone .table-wrap th:first-child,
+.phone .table-wrap td:first-child {
+  position: sticky;
+  left: -14px;
+  background: var(--panel);
+  z-index: 1;
+}
+.phone .table-wrap tr.selected td:first-child {
+  background: #13242c;
+}
+.phone .table-wrap td {
+  padding: 10px 8px;
+  white-space: nowrap;
+}
+.phone .table-wrap td.dim:last-child {
+  white-space: normal;
+  min-width: 220px;
+}
+
+/* Schedule cards (phones); the table stays on desktop */
+.sched-cards {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+.phone .sched-cards {
+  display: flex;
+}
+.phone .sched-table {
+  display: none;
+}
+.sched-cards li {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.sc-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.sc-head b {
+  color: var(--cyan);
+  flex: none;
+}
+.sc-purpose {
+  color: var(--dim);
+  margin: 2px 0 6px;
+}
+.sched-cards dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.sched-cards dt {
+  color: var(--faint);
+}
+.sched-cards dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.sched-cards p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+.sched-cards .sc-total {
+  background: none;
+  border-style: dashed;
+  font-variant-numeric: tabular-nums;
+}
+.phone .export {
+  gap: 16px;
+}
+
+/* Wide and short (a phone on its side, a small landscape tablet): the sheet docks right */
+@media (max-width: 980px) and (min-aspect-ratio: 5/4) {
+  .app.phone.has-sheet {
+    grid-template-columns: minmax(0, 1fr) min(420px, 48vw);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'top top' 'stage sheet' 'tabs tabs';
+  }
+  .app.phone .bsheet {
+    border-top: 0;
+    border-left: 1px solid var(--line-2);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .app.phone.sheet-full .bsheet {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+  .bsheet-head .grip {
+    display: none;
+  }
+  .tabbar button {
+    min-height: 46px;
+    flex-direction: row;
+    gap: 6px;
+  }
+  .phone .topbar {
+    min-height: 46px;
+  }
+  .phone .viewbar {
+    min-height: 46px;
+  }
+}
+
+/* Narrow phones: just the mark and the essentials up top */
+@media (max-width: 560px) {
+  .phone .brand-text,
+  .phone .icon-btn .lbl {
+    display: none;
+  }
+  .phone .mode button {
+    padding: 0 10px;
+  }
+}
+
+/* Printer prompt as a bottom sheet on a phone */
+.modal {
+  overflow-y: auto;
+}
+@media (max-width: 640px) {
+  .modal {
+    place-items: end stretch;
+    padding: 0;
+  }
+  .modal .sheet {
+    max-width: none;
+    max-height: 92vh;
+    max-height: 92dvh;
+    overflow-y: auto;
+    border-radius: 16px 16px 0 0;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .printer-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+  .printer-grid button {
+    min-height: 56px;
+  }
 }

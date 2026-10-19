@@ -26,6 +26,7 @@ import type { BuiltPart, Mat4, MaterialRole } from '../types';
 import { makeEffect } from './effects';
 import { usePlates } from './PartsPanel';
 import { useStore } from './store';
+import { touchFriendlyEvents } from './touch';
 
 const ROLE_COLOR: Record<MaterialRole, string> = { body: '#34343c', baffle: '#46465a', diffuser: '#f2eee4' };
 
@@ -152,7 +153,9 @@ export function CameraRig({ center, radius, viewKey }: { center: Vector3; radius
     // Fixtures face assembled +Y, which is world -Z after the Z-up → Y-up turn.
     // Three-quarter view from the front-right, slightly above.
     const dir = new Vector3(0.8, 0.6, -1).normalize();
-    const dist = Math.max(140, radius * 2.6);
+    // A portrait view (a phone) is narrower than it is tall: back off so the sides fit too.
+    const aspect = (camera as { aspect?: number }).aspect ?? 1;
+    const dist = Math.max(140, (radius * 2.6) / Math.min(1, Math.max(0.45, aspect)));
     camera.position.copy(center.clone().add(dir.multiplyScalar(dist)));
     camera.near = 1;
     camera.far = dist * 20;
@@ -246,7 +249,7 @@ export function Viewer() {
   const explodeDist = explode * size * 0.45;
 
   return (
-    <Canvas shadows camera={{ fov: 35, position: [300, 250, 400] }} dpr={[1, 2]} gl={{ antialias: true }}>
+    <Canvas shadows camera={{ fov: 35, position: [300, 250, 400] }} dpr={[1, 2]} gl={{ antialias: true }} events={touchFriendlyEvents}>
       <SceneBasics size={size} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
       <CameraRig center={frame.center} radius={frame.radius} viewKey={`${result?.fixtureId}-${view}-${printer.id}`} />

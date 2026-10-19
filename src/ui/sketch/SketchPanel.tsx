@@ -11,7 +11,8 @@ import { getCore, SYSTEM_CORES } from '../../workbench/cores';
 import { designOf, paramsOf, useBench } from '../../workbench/store';
 import { registerBenchKeyHandler, registerBenchTools } from '../bench/BenchToolbar';
 import { boldTextArtwork, svgArtwork } from './artwork';
-import { finishDraft, sketchCursor } from './SketchLayer';
+import { sketchActions } from './actions';
+import { sketchCursor } from './SketchLayer';
 import type { SketchPath, SketchRegion } from '../../sketch/types';
 
 const TOOLS = [
@@ -38,31 +39,21 @@ registerBenchKeyHandler((e, tool) => {
     return true;
   }
   if (mod || e.altKey) return false;
-  const d = st.draft;
   if (e.key === 'Enter') {
-    finishDraft(false);
+    sketchActions.finish();
     return true;
   }
   if (e.key === 'Escape') {
-    if (d) st.setDraft(null);
-    else if (st.selected.length) st.clearSelection();
-    else useBench.getState().setTool('select');
+    sketchActions.cancel();
     return true;
   }
   if (e.key === 'Backspace' || e.key === 'Delete') {
     e.preventDefault();
-    if (d?.pts.length) st.setDraft(d.pts.length > 1 ? { ...d, pts: d.pts.slice(0, -1), planes: d.planes.slice(0, -1) } : null);
-    else st.removeSelected();
+    if (!sketchActions.undoPoint()) st.removeSelected();
     return true;
   }
   // 3D sketch: turn onto a new plane through the last point.
-  if (d?.tool === 'draw:line' && d.pts.length && (k === 'x' || k === 'y' || k === 'z')) {
-    const last = d.pts[d.pts.length - 1];
-    if (k === 'z') st.setPlane('XY', last[2]);
-    if (k === 'y') st.setPlane('XZ', last[1]);
-    if (k === 'x') st.setPlane('YZ', last[0]);
-    return true;
-  }
+  if (k === 'x' || k === 'y' || k === 'z') return sketchActions.turn(k);
   return false;
 });
 
@@ -88,15 +79,20 @@ function addEntities(list: Entity[]) {
   useSketch.getState().add(paths, regions);
 }
 
-/** Typed length: extend the line in progress toward the cursor by exactly `mm`. */
+/**
+ * Typed length: extend the line in progress toward the cursor by exactly `mm`. With no cursor
+ * to aim at (a finger has no hover) it carries on the last segment's direction, or runs along
+ * the plane's first axis from a lone start point.
+ */
 function addSegment(mm: number) {
   const st = useSketch.getState();
   const d = st.draft;
-  const cur = sketchCursor.current;
-  if (!d || d.tool !== 'draw:line' || !d.pts.length || !cur || mm <= 0) return false;
+  if (!d || d.tool !== 'draw:line' || !d.pts.length || mm <= 0) return false;
   const last = d.pts[d.pts.length - 1];
-  if (dist(cur, last) < 1e-6) return false;
-  const p = add(last, scale(norm(sub(cur, last)), mm));
+  const cur = sketchCursor.current;
+  const prev = d.pts.length > 1 ? d.pts[d.pts.length - 2] : null;
+  const dir = cur && dist(cur, last) > 1e-6 ? sub(cur, last) : prev && dist(prev, last) > 1e-6 ? sub(last, prev) : activePlane(st).u;
+  const p = add(last, scale(norm(dir), mm));
   st.setDraft({ ...d, pts: [...d.pts, p], planes: [...d.planes, activePlane(st)] });
   return true;
 }
@@ -189,7 +185,7 @@ export function SketchPanel() {
     b.commit(applyGenerate(core, designOf(b), paramsOf(b), plan), { frameSeq: b.frameSeq + 1, selection: null, pending: null });
     b.setTool('select');
     setTarget(null);
-    setMsg(`Generated ${planSize(plan)} shape${planSize(plan) === 1 ? '' : 's'} into ${core.name}. Ctrl+Z on the bench undoes it.`);
+    setMsg(`Generated ${planSize(plan)} shape${planSize(plan) === 1 ? '' : 's'} into ${core.name}. The bench's Undo (Ctrl+Z) takes it back.`);
   };
 
   return (
@@ -237,7 +233,7 @@ export function SketchPanel() {
             <input type="checkbox" checked={show} onChange={(e) => sk().set('show', e.target.checked)} /> Show
           </label>
         </div>
-        <p className="sk-tip">Line tool: X, Y or Z turns the next segment onto a new plane through the last point. That's how you sketch in 3D.</p>
+        <p className="sk-tip">Line tool: X, Y or Z (keys, or the buttons over the view) turns the next segment onto a new plane through the last point. That's how you sketch in 3D.</p>
       </section>
 
       <section className="sketch">

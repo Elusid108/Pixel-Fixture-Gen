@@ -16,7 +16,41 @@ export function SchedulePanel() {
   }
   return (
     <div className="schedule">
-      <div className="table-wrap">
+      {/* Narrow screens: one card per unit instead of a twelve-column table. */}
+      <ul className="sched-cards">
+        {report.rows.map((r) => (
+          <li key={r.unit}>
+            <div className="sc-head">
+              <b className="mono">{r.unit}</b>
+              <span>{r.position}</span>
+            </div>
+            <div className="sc-purpose">
+              {r.purpose} <span className="chip">{r.form}</span>
+            </div>
+            <dl>
+              <dt>Pixel</dt>
+              <dd>
+                {r.pixelName} <span className="mono dim">{r.spec}</span>
+              </dd>
+              <dt>Qty · px · ch</dt>
+              <dd>
+                {r.qty} · {r.px} · {r.channels}
+              </dd>
+              <dt>Patch</dt>
+              <dd className="mono">
+                {formatAddress(r.start)}–{formatAddress(r.end)}
+              </dd>
+              <dt>Max</dt>
+              <dd>{fmt(r.maxW)} W</dd>
+            </dl>
+            {r.notes && <p className="dim">{r.notes}</p>}
+          </li>
+        ))}
+        <li className="sc-total">
+          <b>Totals</b> {report.totals.px} px · {report.totals.channels} ch · {report.totals.universes} univ. · {fmt(report.totals.watts)} W
+        </li>
+      </ul>
+      <div className="table-wrap sched-table">
         <table>
           <thead>
             <tr>
