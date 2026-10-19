@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../fit';
 import { Geo, type P2 } from '../geom/geo';
 import { apply, applyDir, mul, Rx, Rz, T } from '../geom/mat';
 import { getPixel, pcbLedOffsets } from '../pixels/library';
@@ -15,6 +16,9 @@ import { bool, layFlat, num, str } from './util';
  * - The bezel carries real colour-frame guides: two gel frames (sandwich your own gel) and a
  *   four-leaf barn door slide in from the top and rest on the rail stops.
  * - Yoke with M4 tilt knobs on heat-set trunnions, M5 pan lock into the stand.
+ *
+ * Fit: the lens, bezel sleeve, rail pegs, frame slot, knuckles and yoke cheeks all take the fit
+ * gap; the ring and jewel take the seat clearance. Hinge pins and screws are hardware.
  *
  * Can-local frame: axis +Z, floor at z=0, front at z=H. The assembled beam points along +Y.
  */
@@ -46,14 +50,27 @@ export const fresnel: FixtureDef = {
     { key: 'barndoors', label: 'Barn doors', type: 'boolean', default: true, group: 'Accessories' },
     { key: 'gels', label: 'Gel frames', type: 'boolean', default: true, group: 'Accessories' },
     { key: 'tilt', label: 'Tilt (view)', type: 'number', default: 20, min: -30, max: 60, step: 5, unit: '°', group: 'View' },
-    { key: 'doors', label: 'Barn door open (view)', type: 'number', default: 100, min: 0, max: 170, step: 5, unit: '°', group: 'View' },
-    { key: 'tol', label: 'Socket clearance', type: 'number', default: 0.2, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+    {
+      key: 'doors',
+      label: 'Barn door open (view)',
+      type: 'number',
+      default: 100,
+      min: 55,
+      max: 130,
+      step: 5,
+      unit: '°',
+      group: 'View',
+      help: 'The leaves stop on the frame rails below 55° and on each other past 130°.',
+    },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
     const ring = getPixel(str(params, 'ring'));
     const jewel = getPixel(str(params, 'jewel'));
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const fit = fitOf(params);
+    const side = sideOf(params);
     const R = num(params, 'lens') / 2;
     const H = num(params, 'length');
     const Rc = num(params, 'curve');
@@ -91,19 +108,20 @@ export const fresnel: FixtureDef = {
         profile.push([r, zoneZ(k, r)]);
       }
     }
-    const lens = g.revolve(profile, 120);
+    const lensSegs = 120;
+    const lens = g.revolve(profile, lensSegs);
 
     /* ---------- Can ---------- */
-    const Rb = R + 0.3;
+    const Rb = R + side; // lens seat
     const Ro = Rb + wall;
     const Ri = R - 3;
     if (ringOD / 2 + 2 > Ri) warnings.push(`The ${ring.name} is wider than the lamp house. Use a bigger lens or a smaller ring.`);
     const floorT = Math.max(ring.shape.depth, jewel.shape.depth) + 1.6;
-    const zl = H - lt - 0.2;
+    const zl = H - lt - side; // the bezel captures the lens with half a gap
     const zt = H * 0.5;
     const cutters: (Manifold | false)[] = [
       g.cylZ(Ri, floorT, H + 1),
-      g.cylZ(Rb, zl, H + 1),
+      g.cylZ(Rb, zl, H + 1, 0, 0, lensSegs), // same facets as the lens, so the gap holds all round
       g.place(socketCutter(g, ring, { tol, over: 1, wire: floorT + 1 }), T(0, 0, floorT)),
       g.place(socketCutter(g, jewel, { tol, over: 1, wire: floorT + 1 }), T(0, 0, floorT)),
       g.cylZ(3.2, -1, floorT + 1, 0, (ringOD / 2 + Ri) / 2), // cable entry, rear-bottom when hung
@@ -127,35 +145,40 @@ export const fresnel: FixtureDef = {
     const pt = 3;
     const F = 2 * R + 16; // colour frame size
     const Fp = F + 2 * (0.5 + 3);
-    const slotH = 6.2;
-    let bezel = g.union([g.extrude(g.roundRect(Fp, Fp, 4), 0, pt), g.tubeZ(Ro + 2.65, Ro + 0.25, pt - 0.01, pt + 10)]);
-    const bezelCuts: Manifold[] = [g.cylZ(R - 3, -1, pt + 1), g.cylZ(Ro + 0.25, pt, pt + 11)];
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) bezelCuts.push(g.cylZ(1.55, -1, pt + 1, sx * (F / 2 + 2), (sy * Fp) / 4));
+    const pegR = 1.4;
+    // The sleeve slides over the can with the fit gap.
+    let bezel = g.union([g.extrude(g.roundRect(Fp, Fp, 4), 0, pt), g.tubeZ(Ro + side + 2.4, Ro + side, pt - 0.01, pt + 10)]);
+    const bezelCuts: Manifold[] = [g.cylZ(R - 3, -1, pt + 1), g.cylZ(Ro + side, pt, pt + 11)];
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) bezelCuts.push(g.cylZ(pegR + side, -1, pt + 1, sx * (F / 2 + 2), (sy * Fp) / 4));
     for (const sy of [-1, 1]) bezelCuts.push(g.cylY(1.65, sy > 0 ? Ro : -Ro - 4, sy > 0 ? Ro + 4 : -Ro, 0, pt + 6));
     bezel = g.cut(bezel, bezelCuts);
 
-    // Rails in "front" coords: plate plane XY, +Z forward out of the instrument.
+    // Rails in "front" coords: plate plane XY, +Z forward out of the instrument. The slot is the
+    // frame stack (two gel frames and the barn door frame) plus the fit gap in width and height.
+    const slotH = 2 * 1.2 + 3 + fit;
     const rail = (sx: number): Manifold => {
       const span = (a: number, b: number): [number, number] => (sx > 0 ? [a, b] : [-b, -a]);
-      const [s0, s1] = span(F / 2 + 0.5, F / 2 + 3.5);
-      const [l0, l1] = span(F / 2 + 0.5 - 4, F / 2 + 3.5);
+      const [s0, s1] = span(F / 2 + side, Fp / 2);
+      const [l0, l1] = span(F / 2 + side - 4, Fp / 2);
       return g.union([
         g.box([s0, -Fp / 2, 0], [s1, Fp / 2, slotH]),
         g.box([l0, -Fp / 2, slotH], [l1, Fp / 2, slotH + 2]),
         g.box([l0, -Fp / 2, 0], [l1, -Fp / 2 + 4, slotH + 2]),
-        ...[-1, 1].map((sy) => g.cylZ(1.4, -2.8, 0.01, sx * (F / 2 + 2), (sy * Fp) / 4)),
+        ...[-1, 1].map((sy) => g.cylZ(pegR, -2.8, 0.01, sx * (F / 2 + 2), (sy * Fp) / 4)),
       ]);
     };
 
     /* ---------- Gel frames + barn doors ---------- */
-    const vc = 0.3; // frames rest on the rail stops
+    const vc = 0.5; // frames rest on the rail stops (stop top is F/2 - 0.5 below centre)
+    const zGel = side / 2; // half a gap off the bezel, half between gels and barn doors, a gap under the lips
+    const zBarn = side + 2 * 1.2;
     const gelFrame = g.cut(
       g.extrude(g.CS.union([g.roundRect(F, F, 3), g.roundRect(24, 10, 2, 0, F / 2 + 2)]), 0, 1.2),
       [g.cylZ(R - 2, -1, 2)],
     );
 
     const kl = 8;
-    const clr = 0.4;
+    const clr = fit; // gap between knuckles
     const yk = F / 2 - 4;
     const xk = F / 2 - 7;
     const spanTop = F - 24;
@@ -204,7 +227,7 @@ export const fresnel: FixtureDef = {
     /* ---------- Yoke + stand (assembled frame, Z up, beam +Y) ---------- */
     const Hc = 40;
     const Hp = Hc + 6 + Ro + 18;
-    const xa = Ro + 4 + 0.5 + 3;
+    const xa = Ro + 4 + side + 3; // yoke cheeks clear the trunnion bosses by half a gap each
     const yokeAsm = g.cut(
       g.union([
         ...[-1, 1].flatMap((sx) => [
@@ -251,13 +274,13 @@ export const fresnel: FixtureDef = {
         name: 'Gel frame',
         role: 'body',
         solid: gelFrame,
-        instances: [mul(Mfront, T(0, vc, 0.2)), mul(Mfront, T(0, vc, 1.4))],
+        instances: [mul(Mfront, T(0, vc, zGel)), mul(Mfront, T(0, vc, zGel + 1.2))],
         explode: ex(3.2),
         note: 'Two halves sandwich a cut of real gel.',
       });
     }
     if (bool(params, 'barndoors')) {
-      const Mbf = mul(Mfront, T(0, vc, 2.8));
+      const Mbf = mul(Mfront, T(0, vc, zBarn));
       const open = num(params, 'doors');
       const leafAt = (rot: number, e: number) => mul(Mbf, Rz(rot), T(0, e, 6), Rx(open), T(0, 0, -3));
       parts.push({ id: 'barn-frame', name: 'Barn door frame', role: 'body', solid: barnFrame, instances: [Mbf], explode: ex(3.8) });
@@ -290,9 +313,20 @@ export const fresnel: FixtureDef = {
     place(pcbLedOffsets(jewel), 'S2-2');
 
     const pins = bool(params, 'barndoors') ? ((2 * spanTop + 2 * spanSide + 8) / 1000).toFixed(2) : null;
+    const slotLoad = [bool(params, 'gels') ? 'gel frames' : '', bool(params, 'barndoors') ? 'barn door frame' : ''].filter(Boolean).join(', then the ');
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Base and yoke', parts: ['stand', 'yoke'], hardware: 'M5 heat-set insert, M5×16 thumb screw', note: 'Insert in the stand post. Yoke on top, pan lock in.' },
+        { title: 'Seat the pixels', parts: ['can'], hardware: `${ring.name}, ${jewel.name}, JST-SM pigtail`, note: 'Ring and jewel into the floor, leads out the cable entry.' },
+        { title: 'Drop in the lens', parts: ['lens'], note: 'Steps toward the LEDs, flat face out.' },
+        { title: 'Fit the bezel', parts: ['bezel'], hardware: '2 × M3×8 self-tapping screw', note: 'Sleeve over the can front. It captures the lens.' },
+        { title: 'Fit the rails', parts: ['rail-l', 'rail-r'], hardware: 'CA glue', note: 'Pegs into the bezel holes, stops at the bottom.' },
+        ...(bool(params, 'barndoors') ? [{ title: 'Hang the barn doors', parts: ['barn-frame', 'barn-leaf-l', 'barn-leaf-s'], hardware: '1.75 mm filament', note: 'Leaf knuckles between the frame knuckles. Push a pin through each hinge, trim flush.' }] : []),
+        ...(slotLoad ? [{ title: 'Load the frame slot', parts: ['gel-frame', 'barn-frame'].filter((id) => parts.some((p) => p.id === id)), hardware: bool(params, 'gels') ? 'A cut of gel' : undefined, note: `From the top: the ${slotLoad}. They rest on the stops.` }] : []),
+        { title: 'Hang the can', parts: ['can', 'yoke'], hardware: '2 × M4 heat-set insert, 2 × M4×10 thumb screw', note: 'Inserts in the trunnions. Can between the yoke arms, thumb screws in.' },
+      ],
       schedule: [
         {
           unit: 'S2-1',

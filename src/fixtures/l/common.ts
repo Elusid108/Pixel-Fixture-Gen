@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { fitOf } from '../../fit';
 import { apply, mul } from '../../geom/mat';
 import type { JointKind, SplitOpts } from '../../geom/split';
 import { add, dist, norm, scale } from '../../geom/vec';
@@ -31,11 +32,12 @@ export interface SplitCfg {
   opts: SplitOpts;
 }
 
+/** The split settings, with the fit gap for the split keys (the default gap when a fixture has no fit param). */
 export function splitCfg(params: Params): SplitCfg {
   return {
     printer: getPrinter(str(params, 'printer')),
     on: bool(params, 'autosplit'),
-    opts: { joint: str(params, 'joint') as JointKind, pins: bool(params, 'pins') },
+    opts: { joint: str(params, 'joint') as JointKind, pins: bool(params, 'pins'), fit: fitOf(params) },
   };
 }
 

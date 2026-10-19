@@ -1,3 +1,4 @@
+import { FIT_PARAMS, seatOf } from '../fit';
 import { Geo } from '../geom/geo';
 import { T } from '../geom/mat';
 import { getPixel, PIXELS } from '../pixels/library';
@@ -6,8 +7,9 @@ import type { FixtureDef } from '../types';
 import { num, str } from './util';
 
 /**
- * T0: print this first. Three copies of the chosen socket at stepped clearances,
- * each engraved with its tolerance, so you dial in the fit before committing a full fixture.
+ * T0: print this first. Three copies of the chosen socket at stepped clearances around the
+ * seat clearance in the header, each engraved with its value, so you dial in the pixel seat
+ * before committing a full fixture. T1 does the same for the fit gap between printed parts.
  */
 export const coupon: FixtureDef = {
   id: 'fit-coupon',
@@ -16,10 +18,9 @@ export const coupon: FixtureDef = {
   family: 'utility',
   tagline: 'Print first. Three clearances, pick the one that grips.',
   description:
-    'Prints the selected pixel socket at three clearances with the value engraved beside each. Press your pixel into all three, then set that clearance as the tolerance on the real fixture.',
+    'Prints the selected pixel socket at three clearances, centred on the seat clearance in the header, with the value engraved beside each. Press your pixel into all three, then set the one that grips as the Seat in the header.',
   params: [
     { key: 'pixel', label: 'Pixel', type: 'pixel', default: 'node-12-bullet', pixels: PIXELS.map((p) => p.id) },
-    { key: 'tol', label: 'Middle clearance', type: 'number', default: 0.15, min: 0, max: 0.6, step: 0.05, unit: 'mm' },
     { key: 'step', label: 'Step', type: 'number', default: 0.1, min: 0.05, max: 0.25, step: 0.05, unit: 'mm' },
     {
       key: 'plate',
@@ -32,11 +33,12 @@ export const coupon: FixtureDef = {
       unit: 'mm',
       help: 'Bullet nodes grip 1.5–3 mm material. Ignored for pocket-style pixels.',
     },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
     const pixel = getPixel(str(params, 'pixel'));
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
     const step = num(params, 'step');
     const s = pixel.shape;
     const isNode = pixel.form === 'node';
@@ -62,6 +64,10 @@ export const coupon: FixtureDef = {
 
     return {
       parts: [{ id: 'coupon', name: `Fit coupon · ${pixel.name}`, role: 'body', solid: plate, instances: [T(0, 0, 0)] }],
+      assembly: [
+        { title: 'Try the seats', parts: ['coupon'], hardware: `1 × ${pixel.name}`, note: `Press the pixel into ${tols.map((t) => t.toFixed(2)).join(', ')}. It should push in by hand and hold upside down.` },
+        { title: 'Set the seat', note: 'Enter the clearance that grips as Seat in the header. Every fixture uses it.' },
+      ],
       pixels: [],
       schedule: [],
       hardware: [],

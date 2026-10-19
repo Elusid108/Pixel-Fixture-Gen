@@ -1,5 +1,6 @@
 import { Matrix4 } from 'three';
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { DEFAULT_FIT_GAP } from '../fit';
 import { footprintFits, type Printer } from '../printers';
 import type { Mat4, MaterialRole, PartSpec, Vec3 } from '../types';
 import type { Geo } from './geo';
@@ -12,8 +13,12 @@ import { basis, cross, dot, norm } from './vec';
  *
  * Every cut gets a keyed joint made by *exchanging material* across the cut: the key is the
  * part of the far piece's material inside the key shape, moved to the near piece, and the far
- * piece loses the same shape plus clearance. So a key never adds material the part didn't
+ * piece loses the same shape grown by the fit gap. So a key never adds material the part didn't
  * have, and it works for any section, not just boxes.
+ *
+ * Fit: the slot is the key grown by half the fit gap on every face, measured square to the face
+ * (so a 15° dovetail flank gets the same gap as a straight one), and half a gap deeper than the
+ * key reaches. Pin holes are hardware (1.75 mm filament) and keep their own size.
  *
  * - Vertical cuts (normal in XY) default to a sliding **dovetail**. The dovetail runs along Z,
  *   so it prints in the part's own orientation with no overhang, and drops in from above.
@@ -38,8 +43,8 @@ export interface SplitOpts {
   joint?: JointKind;
   /** 1.75 mm filament alignment pins at each cut. Default true. */
   pins?: boolean;
-  /** Clearance per side on keys, mm. Default 0.15. */
-  tol?: number;
+  /** Total fit gap between a key and its slot, mm (half of it on each face). Default 0.4. */
+  fit?: number;
   /** Default 'grid'. */
   mode?: 'grid' | 'radial';
   /** Radial: which sector counts are allowed (e.g. divisors of the tube count). */
@@ -292,7 +297,7 @@ interface JointOut {
 }
 
 const WALL = 1.6;
-const PIN_R = 1.0; // 1.75 mm filament in a Ø2.0 hole
+const PIN_R = 1.05; // 1.75 mm filament in a Ø2.1 hole: a hardware size, not a part-to-part fit
 const PIN_DEPTH = 8;
 const TAN15 = Math.tan((15 * Math.PI) / 180);
 
@@ -309,7 +314,16 @@ function planeFrame(p: Vec3, n: Vec3): { F: Mat4; vertical: boolean } {
   return { F: basis(u, v, nn, p), vertical };
 }
 
-function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean, tol: number): JointOut {
+/**
+ * Dovetail slot half-width at depth `w` for a key that is `a` wide at the face (w=0) and `b` wide
+ * at its full depth `d`, grown by `side` square to the flank.
+ */
+export function dovetailSlotHalf(a: number, b: number, d: number, side: number, w: number): number {
+  const phi = Math.atan((b - a) / (2 * d));
+  return a / 2 + w * Math.tan(phi) + side / Math.cos(phi);
+}
+
+function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean, side: number): JointOut {
   const out: JointOut = { add: null, subA: [], subB: [], pins: 0, pinMm: 0, fallback: false, bare: false };
   if (kind === 'none' && !pins) return out;
   const Finv = invert(cut.F);
@@ -359,8 +373,11 @@ function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean
       // top of the face so it drops in from above. The slot is open at the top for the same reason.
       const extA = a - (b - a) * (0.5 / d);
       out.add = toS(prism(extA, b, -0.5, d, va, r.v1)).intersect(S);
+      // The slot: every flank half a gap off the key square to the face, half a gap past the key's
+      // tip, and half a gap under its foot so the key never bottoms out before the faces meet.
       const floorless = va <= sb.min[1] + 0.3;
-      out.subB.push(toS(prism(a + 2 * tol, b + 2 * tol, -1, d + tol, va - (floorless ? 1 : 0), r.v1 + 1)));
+      const half = (w: number) => dovetailSlotHalf(a, b, d, side, w);
+      out.subB.push(toS(prism(2 * half(-1), 2 * half(d + side), -1, d + side, va - (floorless ? 1 : side), r.v1 + 1)));
       if (pins) {
         // Cross pin along u through the seated key, in from the nearer side face: it locks the slide.
         const vm = (va + Math.min(rect.vb, va + 12)) / 2;
@@ -372,7 +389,7 @@ function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean
         if (reach < 80 && rect.vb - va >= 2 * PIN_R + 2) {
           const end = u + dir * (reach + 2);
           const start = u - dir * (a / 4);
-          const hole = toS(g.cylX(PIN_R + tol / 2, Math.min(start, end), Math.max(start, end), vm, d / 2));
+          const hole = toS(g.cylX(PIN_R, Math.min(start, end), Math.max(start, end), vm, d / 2));
           out.subA.push(hole);
           out.subB.push(hole);
           out.pins += 1;
@@ -395,13 +412,13 @@ function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean
     rim = !plug2.isEmpty() && !plug2.offset(-0.6).isEmpty() && plug2.area() > 12;
     if (rim) {
       out.add = toS(g.extrude(plug2, -0.5, depth)).intersect(S);
-      const sock = section.offset(-WALL + tol, 'Round').subtract(section.offset(-WALL - ring - tol, 'Round'));
-      out.subB.push(toS(g.extrude(sock, -1, depth + 0.4)));
+      const sock = section.offset(-WALL + side, 'Round').subtract(section.offset(-WALL - ring - side, 'Round'));
+      out.subB.push(toS(g.extrude(sock, -1, depth + side)));
     } else {
       pegs = deepPoints(R, WALL + 1.5, 2, 10, () => false).map((p) => ({ u: p.u, v: p.v, r: Math.min(5, p.d - WALL) }));
       if (pegs.length) {
         out.add = g.union(pegs.map((p) => toS(g.cylZ(p.r, -0.5, depth, p.u, p.v)))).intersect(S);
-        for (const p of pegs) out.subB.push(toS(g.cylZ(p.r + tol, -1, depth + 0.4, p.u, p.v)));
+        for (const p of pegs) out.subB.push(toS(g.cylZ(p.r + side, -1, depth + side, p.u, p.v)));
       } else if (kind !== 'none') {
         out.fallback = true;
       }
@@ -409,10 +426,10 @@ function makeJoint(g: Geo, S: Manifold, cut: Cut, kind: JointKind, pins: boolean
   }
   if (pins) {
     // Across the cut, clear of the rim band and of any pegs. Two when there's room, to fix rotation.
-    const minD = rim ? WALL + ring + tol + PIN_R + 0.8 : PIN_R + 1.4;
+    const minD = rim ? WALL + ring + side + PIN_R + 0.8 : PIN_R + 1.4;
     const nearPeg = (u: number, v: number) => pegs.some((p) => Math.hypot(p.u - u, p.v - v) < p.r + PIN_R + 2);
     for (const p of deepPoints(R, minD, 2, 12, nearPeg)) {
-      const hole = toS(g.cylZ(PIN_R + tol / 2, -PIN_DEPTH, PIN_DEPTH, p.u, p.v));
+      const hole = toS(g.cylZ(PIN_R, -PIN_DEPTH, PIN_DEPTH, p.u, p.v));
       out.subA.push(hole);
       out.subB.push(hole);
       out.pins += 1;
@@ -462,7 +479,7 @@ function samePiece(a: Manifold, b: Manifold): boolean {
 export function splitToBed(g: Geo, solid: Manifold, printer: Printer, opts: SplitOpts = {}): SplitResult {
   const kind = opts.joint ?? 'dovetail';
   const pins = opts.pins ?? true;
-  const tol = opts.tol ?? 0.15;
+  const side = (opts.fit ?? DEFAULT_FIT_GAP) / 2;
   const maxPieces = opts.maxPieces ?? 64;
   const whole: SplitResult = { parts: [{ solid, instances: [T(0, 0, 0)], pieces: [1] }], pieces: 1, cuts: 0, fallbacks: 0, bare: 0, pins: 0, pinMm: 0, fits: true, mode: 'none' };
   if (fitsPrinter(solid, printer)) return whole;
@@ -503,7 +520,7 @@ export function splitToBed(g: Geo, solid: Manifold, printer: Printer, opts: Spli
     for (const c of cuts) {
       const pair = g.union([base[c.a], base[c.b]]);
       if (pair.isEmpty() || base[c.a].isEmpty() || base[c.b].isEmpty()) continue;
-      const j = makeJoint(g, pair, c, kind, pins, tol);
+      const j = makeJoint(g, pair, c, kind, pins, side);
       if (j.add && !j.add.isEmpty()) adds[c.a].push(j.add);
       subs[c.a].push(...j.subA);
       subs[c.b].push(...j.subB);

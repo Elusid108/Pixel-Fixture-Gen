@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { mul, Rx, Rz, T } from '../../geom/mat';
 import { splitLinear, splitParts, splitToBed } from '../../geom/split';
@@ -19,6 +20,9 @@ import { fmt, rng, SPLIT_PARAMS, splitCfg } from './common';
  * four suspension lugs make a second arc shape). The lid drops onto ledges inside the trough
  * and is cut into plain arcs. Tubes longer than the printer is tall split into equal
  * segments joined by printed spigot couplers.
+ *
+ * Fit: plug spigots in the crown holes and inside the tubes, couplers in the tubes, the lid
+ * between the trough walls and the crown's split keys all take the fit gap.
  */
 
 export type CascadePattern = 'cone' | 'wave' | 'spiral' | 'random';
@@ -110,10 +114,12 @@ export const cascade: FixtureDef = {
     { key: 'pixel', label: 'Strip', type: 'pixel', default: 'strip-60-ws2812b', pixels: ['strip-60-ws2812b', 'strip-60-ws2815', 'strip-30-ws2812b'], group: 'Pixels' },
     { key: 'px', label: 'Pixels per tube', type: 'number', default: 10, min: 3, max: 30, step: 1, group: 'Pixels', help: 'A short run at the bottom of each tube: the "drop".' },
     ...SPLIT_PARAMS,
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
     const split = splitCfg(params);
+    const side = sideOf(params);
     const D = num(params, 'diameter');
     const rows = Number(str(params, 'rows'));
     const outer = num(params, 'outer');
@@ -164,8 +170,8 @@ export const cascade: FixtureDef = {
     ];
     // A multiple of the outer tube count, so every crown arc is an exact copy.
     const segs = outer * Math.max(1, Math.round((D * 0.6) / outer));
-    const plugR = tubeIR - 0.15;
-    const holeR = plugR + 0.25;
+    const plugR = tubeIR - side; // spigot inside the tube
+    const holeR = plugR + side; // and through the crown floor
     const lugAngles = [0, 90, 180, 270];
     const lugs = lugAngles.map((a) => g.place(g.cut(g.union([g.box([rOut - 4, -8, H - 1], [rOut, 8, H + 8]), g.cylX(8, rOut - 4, rOut, 0, H + 8)]), [g.cylX(2.6, rOut - 5, rOut + 1, 0, H + 8)]), Rz(a)));
     const holes = drops.map((d) => g.place(g.cylZ(holeR, -1, floor + 1, d.radius, 0), Rz(d.angle)));
@@ -188,13 +194,13 @@ export const cascade: FixtureDef = {
       parts.push({ ...crownBase, name: 'Crown', solid: crown, instances: [crownAt] });
     }
 
-    // Lid: a flat ring resting on the ledges. Plain arcs, no keys needed.
+    // Lid: a flat ring resting on the ledges, half a gap off each trough wall. Plain arcs, no keys needed.
     const lid = g.revolve(
       [
-        [rIn + 4.3, 0],
-        [rOut - 4.3, 0],
-        [rOut - 4.3, 2.4],
-        [rIn + 4.3, 2.4],
+        [rIn + 4 + side, 0],
+        [rOut - 4 - side, 0],
+        [rOut - 4 - side, 2.4],
+        [rIn + 4 + side, 2.4],
       ],
       segs,
     );
@@ -310,6 +316,22 @@ export const cascade: FixtureDef = {
     ];
     if (segCount > drops.length) warnings.push(`${segCount - drops.length} tube joints: tubes longer than ${fmt(maxSeg)} mm split into equal segments on spigot couplers.`);
 
-    return { parts, pixels, schedule, hardware, warnings, enclosureCm3: (drops.length * Math.PI * tubeIR * tubeIR * lit) / 1000 };
+    const ids = (pre: string) => parts.filter((p) => p.id === pre || p.id.startsWith(`${pre}-`)).map((p) => p.id);
+    const crownIds = ids('crown');
+    const assembly = [
+      {
+        title: 'Join the crown',
+        parts: crownIds,
+        hardware: crownIds[0] !== 'crown' ? `${split.opts.pins ? '1.75 mm filament pins, ' : ''}CA glue` : undefined,
+        note: crownIds[0] !== 'crown' ? 'Arcs drop together on their keys, trough up. Pins across each joint.' : 'Trough up.',
+      },
+      { title: 'Hang the crown', parts: crownIds, hardware: `${lugAngles.length} × Gripple kit`, note: 'Through the rim lugs to the canopy. Level it before the tubes go on.' },
+      { title: 'Hanger plugs', parts: ['plug'], note: `${drops.length} plugs, flange up in the trough, spigot through each floor hole.` },
+      { title: 'Strips into tubes', parts: ids('tube'), hardware: `${drops.length} × ${pxPer} px ${pixel.name}, JST-SM pigtails`, note: 'Feed each run down through its plug bore to the tip.' },
+      ...(couplers.length ? [{ title: 'Join long tubes', parts: ['coupler', ...ids('tube')], note: 'Coupler spigots into both segments, ridge between them.' }] : []),
+      { title: 'Tubes on', parts: ids('tube'), hardware: 'CA glue (optional)', note: 'Each tube up over its plug spigot to the crown floor.' },
+      { title: 'Lid on', parts: ids('lid'), note: 'Arcs onto the trough ledges, seams across the crown joints.' },
+    ];
+    return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3: (drops.length * Math.PI * tubeIR * tubeIR * lit) / 1000 };
   },
 };

@@ -1,4 +1,5 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { FIT_PARAMS, sideOf } from '../../fit';
 import { Geo } from '../../geom/geo';
 import { Rx, T } from '../../geom/mat';
 import { getPixel } from '../../pixels/library';
@@ -19,6 +20,9 @@ export function stripHelix(L: number, H: number, r: number): { rise: number; tur
  * crossings beat into broad moiré bands, and because the shells sit a gap apart, the bands
  * walk as you move past. Inside, a vase-mode diffuser sleeve turns a helix of strip on the
  * core into soft travelling colour. No moving parts; the motion is parallax and the chase.
+ *
+ * Fit: every shell and the sleeve stand in ring grooves in the base and cap with the fit gap
+ * across the wall and half a gap at the cap end; the core sits in pockets the same way.
  */
 export const moire: FixtureDef = {
   id: 'moire-lantern',
@@ -35,6 +39,7 @@ export const moire: FixtureDef = {
     { key: 'twist', label: 'Slot twist', type: 'number', default: 45, min: 0, max: 90, step: 5, unit: '°', group: 'Shells', help: 'Outer shell twists this way, inner shell the other. 0 gives straight slots and a simple beat.' },
     { key: 'gap', label: 'Shell gap', type: 'number', default: 8, min: 4, max: 16, step: 1, unit: 'mm', group: 'Shells', help: 'Wider gap means more parallax: the bands move faster as you walk.' },
     { key: 'height', label: 'Shell height', type: 'number', default: 200, min: 140, max: 220, step: 5, unit: 'mm', group: 'Shells' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -45,6 +50,7 @@ export const moire: FixtureDef = {
     const twist = num(params, 'twist');
     const gap = num(params, 'gap');
     const Hs = num(params, 'height');
+    const side = sideOf(params);
     const warnings: string[] = [];
 
     /* ---------- Radii ---------- */
@@ -87,7 +93,7 @@ export const moire: FixtureDef = {
     const sleeve = g.tubeZ(R3o, R3i, 0, Hs);
 
     /* ---------- Core with a helical strip groove ---------- */
-    const Hc = zTop + 4 - (hb - 4) - 0.5; // sits 4 deep in the base and 4 deep in the cap
+    const Hc = zTop + 4 - (hb - 4) - side; // sits 4 deep in the base and 4 deep in the cap, half a gap short
     const zs = band + 6; // helix start above the core bottom
     const L = count * sp.pitch;
     const avail = Hc - zs - band - 4;
@@ -115,12 +121,13 @@ export const moire: FixtureDef = {
     const airHoles = (a: number, b: number) =>
       Array.from({ length: 6 }, (_, k) => g.cylZ(2.5, a, b, rAir * Math.cos((k * Math.PI) / 3 + 0.3), rAir * Math.sin((k * Math.PI) / 3 + 0.3)));
     const Rb = R1o + 4;
-    const ring = (ro: number, ri: number, a: number, b: number) => g.tubeZ(ro + 0.25, ri - 0.25, a, b);
+    // Shells rest on the base groove floors; the cap grooves run half a gap deeper than the shells reach.
+    const ring = (ro: number, ri: number, a: number, b: number) => g.tubeZ(ro + side, ri - side, a, b);
     const base = g.cut(g.cylZ(Rb, 0, hb), [
       ring(R1o, R1i, hb - seat, hb + 1),
       ring(R2o, R2i, hb - seat, hb + 1),
       ring(R3o, R3i, hb - seat, hb + 1),
-      g.cylZ(Rc + 0.25, hb - 4, hb + 1),
+      g.cylZ(Rc + side, hb - 4, hb + 1),
       g.box([-15, -12, -1], [15, 12, 9]), // ESP32-C3 bay
       g.box([-Rb - 1, -5, 1.6], [-14, 5, 7]), // USB-C
       g.cylZ(4, 8, hb + 1), // leads up into the core
@@ -129,10 +136,10 @@ export const moire: FixtureDef = {
 
     /* ---------- Cap: same grooves from below, hanging hole, air out ---------- */
     const capAsm = g.cut(g.cylZ(R1o + 2, zTop, zTop + capT), [
-      ring(R1o, R1i, zTop - 1, zTop + seat),
-      ring(R2o, R2i, zTop - 1, zTop + seat),
-      ring(R3o, R3i, zTop - 1, zTop + seat),
-      g.cylZ(Rc + 0.25, zTop - 1, zTop + 4),
+      ring(R1o, R1i, zTop - 1, zTop + seat + side),
+      ring(R2o, R2i, zTop - 1, zTop + seat + side),
+      ring(R3o, R3i, zTop - 1, zTop + seat + side),
+      g.cylZ(Rc + side, zTop - 1, zTop + 4),
       g.cylZ(4, zTop - 1, zTop + capT + 1),
       ...airHoles(zTop - 1, zTop + capT + 1),
     ]);
@@ -160,6 +167,13 @@ export const moire: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Fit the controller', parts: ['base'], hardware: 'ESP32-C3 SuperMini, 3 rubber feet', note: 'Into the base bay, USB-C out the side.' },
+        { title: 'Wind the strip', parts: ['core'], hardware: `${count} px ${pixel.name}`, note: 'Lead in through the side hole, then up the helix groove, LEDs out.' },
+        { title: 'Stand the core', parts: ['core', 'base'], note: 'Into the base pocket. Lead down into the bay.' },
+        { title: 'Sleeve and shells', parts: ['sleeve', 'inner', 'outer'], note: 'Each into its base groove: sleeve, inner shell, outer shell.' },
+        { title: 'Cap on', parts: ['cap'], hardware: 'Cord or eyebolt (optional)', note: 'All four grooves engage at once. Hang it from the centre hole if you like.' },
+      ],
       schedule: [
         {
           unit: 'S7-A',

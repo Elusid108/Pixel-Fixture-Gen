@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { DEFAULT_FIT_GAP, FIT_PARAMS, fitOf, seatOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, mul, Rx, Rz, T } from '../../geom/mat';
 import { splitParts, splitToBed } from '../../geom/split';
@@ -20,6 +21,9 @@ import { fmt, SPLIT_PARAMS, splitCfg } from './common';
  *   upright with each layer sitting almost on the one below. One segment part serves both
  *   strands and every height (helical symmetry), so the whole pendant is four printed shapes.
  * - Rung ends rest on lugs on the backbones (45° gussets underneath) and screw down.
+ *
+ * Fit: bar ends clear the backbones' inner faces by half the fit gap, and split keys take the
+ * gap. Pixels take the seat clearance; the Ø8 tube and filament pins are hardware.
  */
 
 const SEG = 120;
@@ -40,10 +44,13 @@ export interface HelixPlan {
   rungs: { z: number; psi: number }[];
 }
 
-export function planHelix(o: { segments: number; span: number; pitch: number; hand: 1 | -1 }): HelixPlan {
+/** Bar-end radius: the backbone's inner face less half the fit gap. */
+export const barEndR = (Rb: number, fit = DEFAULT_FIT_GAP) => Rb - RIB_T / 2 - fit / 2;
+
+export function planHelix(o: { segments: number; span: number; pitch: number; hand: 1 | -1; fit?: number }): HelixPlan {
   const R = o.span / 2;
   const Rb = Math.hypot(R, E_OFF);
-  const xEnd = Math.sqrt((Rb - RIB_T / 2 - 0.3) ** 2 - E_OFF ** 2);
+  const xEnd = Math.sqrt(barEndR(Rb, o.fit) ** 2 - E_OFF ** 2);
   const twistPerSeg = (o.hand * 360 * SEG) / o.pitch;
   const endAng = (Math.atan2(E_OFF, xEnd) * 180) / Math.PI;
   const groove = 180 - 2 * endAng;
@@ -80,8 +87,8 @@ export const helix: FixtureDef = {
       group: 'Shape',
     },
     { key: 'pixel', label: 'Pixel', type: 'pixel', default: 'pcb-9-ws2812b', pixels: ['pcb-9-ws2812b', 'pcb-9-sk6812-rgbw'], group: 'Pixels' },
-    { key: 'tol', label: 'Clearance', type: 'number', default: 0.2, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
     ...SPLIT_PARAMS,
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -91,8 +98,9 @@ export const helix: FixtureDef = {
     const pitch = num(params, 'pitch');
     const hand: 1 | -1 = str(params, 'hand') === 'left' ? -1 : 1;
     const pixel = getPixel(str(params, 'pixel'));
-    const tol = num(params, 'tol');
-    const plan = planHelix({ segments: n, span, pitch, hand });
+    const tol = seatOf(params);
+    const fit = fitOf(params);
+    const plan = planHelix({ segments: n, span, pitch, hand, fit });
     const { Rb, xEnd, twistPerSeg, groove, rungs } = plan;
     const warnings: string[] = [];
     const parts: PartSpec<Manifold>[] = [];
@@ -160,7 +168,7 @@ export const helix: FixtureDef = {
     /* ---------- Rung: pixel bar with an offset hub on the tube ---------- */
     const e = E_OFF;
     // Ends trimmed round so the corners clear the backbones' inner faces.
-    const bar = g.box([-xEnd, e - BAR_W / 2, 0], [xEnd, e + BAR_W / 2, BAR_H]).intersect(g.cylZ(Rb - RIB_T / 2 - 0.3, -1, BAR_H + 1, 0, 0, 180));
+    const bar = g.box([-xEnd, e - BAR_W / 2, 0], [xEnd, e + BAR_W / 2, BAR_H]).intersect(g.cylZ(barEndR(Rb, fit), -1, BAR_H + 1, 0, 0, 180));
     const hubC = g.cylZ(HUB_R, 0, BAR_H);
     const pxX = [-0.55 * xEnd, 0, 0.55 * xEnd];
     const rungCuts: Manifold[] = [g.cylZ(ROD_R, -1, BAR_H + 1)];
@@ -241,6 +249,15 @@ export const helix: FixtureDef = {
     const lengthMm = zTop + 26;
     warnings.push(`${fmt(lengthMm)} mm from finial tip to cap, ${fmt(2 * (Rb + RIB_T / 2))} mm across. ${hand > 0 ? 'Right' : 'Left'}-handed, ${fmt(groove)}° minor groove.`);
     if ((total * pixel.wattsPerPx) / 5 > 6) warnings.push('Over 6 A at full white: inject 5 V at the bottom of the tube as well as the top.');
+    const ids = (pre: string) => parts.filter((p) => p.id === pre || p.id.startsWith(`${pre}-p`)).map((p) => p.id);
+    const assembly = [
+      { title: 'Light the bars', parts: ids('rung'), hardware: `${rungs.length * 3} × ${pixel.name}`, note: 'Three PCBs per bar, face down into the pockets. Wires along the top groove to the hub.' },
+      { title: 'Light the backbones', parts: ids('backbone'), hardware: `${4 * n} × ${pixel.name}`, note: 'One PCB per pocket from the inner face.' },
+      { title: 'Finial and first collar', parts: ids('finial'), hardware: 'Ø8 tube, shaft collar', note: 'Finial onto the tube end, collar above it.' },
+      { title: 'Stack the column', parts: [...ids('rung'), ...ids('spacer')], note: 'Bar hub, spacer, bar hub… up the tube. Each bar turns to meet its lugs. Wires into the tube.' },
+      { title: 'Backbones', parts: ids('backbone'), hardware: `${4 * n} × M3×16 self-tapping screw, ${2 * Math.max(0, n - 1)} × 16 mm filament pin`, note: 'Segments bottom up, pinned at each joint. Screw each bar end down onto its lug.' },
+      { title: 'Cap and hang', parts: ids('cap'), hardware: 'Shaft collar, cord grip, canopy', note: 'Collar on top of the stack, then the cap. Cable in through the side slot.' },
+    ];
     const hardware: HardwareLine[] = [
       { item: 'Ø8 × 1 mm aluminium tube', qty: Math.ceil((lengthMm + 80) / 10) / 100, note: 'Metres. The centre rod; all wires run inside it' },
       { item: 'Ø8 mm shaft collar', qty: 2, note: 'Clamp the stack top and bottom' },
@@ -248,6 +265,6 @@ export const helix: FixtureDef = {
       { item: '1.75 mm filament pins', qty: 2 * Math.max(0, n - 1), note: 'Backbone joints, 16 mm' },
       { item: 'Cord grip + ceiling canopy', qty: 1 },
     ];
-    return { parts, pixels, schedule, hardware, warnings };
+    return { parts, pixels, schedule, hardware, warnings, assembly };
   },
 };
