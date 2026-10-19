@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Params } from '../types';
 import { requestBuild } from '../build/client';
 import { getFixture } from '../fixtures/registry';
@@ -54,6 +54,32 @@ function catalogParams(fixtureId: string, stored: Params | undefined, printerId:
   const def = getFixture(fixtureId);
   const wantsPrinter = def.params.some((p) => p.key === 'printer' && p.hidden);
   return resolveParams(def, wantsPrinter ? { ...stored, printer: printerId } : stored);
+}
+
+/**
+ * Build notes over the view. Errors always show; warnings fold into one line so they never
+ * bury the model, and open on demand.
+ */
+function Notes({ error, errors, warnings }: { error: string | null; errors: string[]; warnings: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <ul className="notes">
+      {error && <li className="err">{error}</li>}
+      {errors.map((e) => (
+        <li key={e} className="err">
+          {e}
+        </li>
+      ))}
+      {warnings.length > 0 && (
+        <li className="toggle">
+          <button onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+            {open ? 'Hide notes' : `${warnings.length} note${warnings.length === 1 ? '' : 's'}: ${warnings[0].length > 70 ? warnings[0].slice(0, 70) + '…' : warnings[0]}`}
+          </button>
+        </li>
+      )}
+      {open && warnings.map((w) => <li key={w}>{w}</li>)}
+    </ul>
+  );
 }
 
 function PrinterPrompt() {
@@ -217,18 +243,7 @@ export function App() {
           ) : (
             <Viewer />
           )}
-          {(notes.length > 0 || error) && (
-            <ul className="notes">
-              {error && <li className="err">{error}</li>}
-              {result?.errors.map((e) => (
-                <li key={e} className="err">
-                  {e}
-                </li>
-              ))}
-              {result?.warnings.slice(0, 4).map((w) => <li key={w}>{w}</li>)}
-              {(result?.warnings.length ?? 0) > 4 && <li>…and {result!.warnings.length - 4} more like these.</li>}
-            </ul>
-          )}
+          {(notes.length > 0 || error) && <Notes error={error} errors={result?.errors ?? []} warnings={result?.warnings ?? []} />}
         </div>
         <section className="drawer">
           <div className="tabs" role="tablist">

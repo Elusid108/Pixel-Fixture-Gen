@@ -283,6 +283,25 @@ input[type='range'] {
   border-radius: 6px;
   color: var(--dim);
 }
+.notes {
+  max-height: 60%;
+  overflow-y: auto;
+}
+.notes li.toggle {
+  pointer-events: auto;
+  padding: 0;
+}
+.notes li.toggle button {
+  background: none;
+  border: 0;
+  color: var(--dim);
+  padding: 6px 10px;
+  text-align: left;
+  width: 100%;
+}
+.notes li.toggle button:hover {
+  color: var(--text);
+}
 .notes li.err {
   border-left-color: var(--err);
   color: var(--text);

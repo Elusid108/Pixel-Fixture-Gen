@@ -144,7 +144,9 @@ export function SketchPanel() {
   const [polarN, setPolarN] = useState(6);
   const [polarDeg, setPolarDeg] = useState(360);
   const generators = SYSTEM_CORES.filter(canGenerate);
-  const [target, setTarget] = useState(system);
+  // Follows the active system until you pick another target.
+  const [picked, setTarget] = useState<string | null>(null);
+  const target = picked ?? system;
   const core = getCore(generators.some((c) => c.id === target) ? target : (generators[0]?.id ?? system));
   const plan = useMemo(() => planGenerate(sketch, selected, core), [sketch, selected, core]);
   const total = sketch.paths.length + sketch.regions.length;
@@ -186,6 +188,7 @@ export function SketchPanel() {
     const b = useBench.getState();
     b.commit(applyGenerate(core, designOf(b), paramsOf(b), plan), { frameSeq: b.frameSeq + 1, selection: null, pending: null });
     b.setTool('select');
+    setTarget(null);
     setMsg(`Generated ${planSize(plan)} shape${planSize(plan) === 1 ? '' : 's'} into ${core.name}. Ctrl+Z on the bench undoes it.`);
   };
 
