@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { angleDeg, SN_PARAMS, type SnPlan } from '../modules/strut-node';
-import type { ParamSpec, Vec3 } from '../types';
-import { Field } from './Inspector';
-import { useSnParams, useSnPlan } from './useSnPlan';
-import { useWorkbench } from './workbenchStore';
+import { angleDeg } from '../model';
+import { SN_PARAMS } from '../params';
+import type { SnPlan } from '../plan';
+import type { ParamSpec, Vec3 } from '../../../types';
+import { Field } from '../../../ui/Inspector';
+import { useSnParams, useSnPlan } from './usePlan';
+import { useWorkbench } from './useSn';
 
 const fmt = (v: number, d = 1) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(d));
 
@@ -223,7 +225,7 @@ function StrutPanel({ plan, id }: { plan: SnPlan; id: string }) {
   );
 }
 
-export function WorkbenchInspector() {
+export function SnInspector() {
   const selection = useWorkbench((s) => s.selection);
   const plan = useSnPlan();
   return (

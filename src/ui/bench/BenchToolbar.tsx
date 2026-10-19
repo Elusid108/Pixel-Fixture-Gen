@@ -1,14 +1,9 @@
 import { useEffect } from 'react';
-import { usePlates } from './PartsPanel';
-import { useStore, type Effect } from './store';
-import { useWorkbench, type Tool } from './workbenchStore';
-
-const TOOLS: { id: Tool; label: string; key: string }[] = [
-  { id: 'select', label: 'Select', key: 'v' },
-  { id: 'add', label: 'Hub', key: 'n' },
-  { id: 'connect', label: 'Strut', key: 'c' },
-  { id: 'order', label: 'Order', key: 'o' },
-];
+import { futureOf, pastOf, useBench } from '../../workbench/store';
+import { getUI } from '../../workbench/uis';
+import type { ToolDef } from '../../workbench/ui';
+import { usePlates } from '../PartsPanel';
+import { useStore, type Effect } from '../store';
 
 const EFFECTS: { value: Effect; label: string }[] = [
   { value: 'chase', label: 'Chase (data order)' },
@@ -17,13 +12,20 @@ const EFFECTS: { value: Effect; label: string }[] = [
   { value: 'off', label: 'Off' },
 ];
 
+/** Tools from outside the active system (the drawing engine registers its own here). */
+const extraTools: ToolDef[] = [];
+export function registerBenchTools(tools: ToolDef[]) {
+  for (const t of tools) if (!extraTools.some((x) => x.id === t.id)) extraTools.push(t);
+}
+export const benchTools = (system: string): ToolDef[] => [...getUI(system).tools, ...extraTools];
+
 /** Keyboard: tools, delete, undo/redo, escape. Ignored while typing in a field. */
-export function useWorkbenchKeys() {
+export function useBenchKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      const st = useWorkbench.getState();
+      const st = useBench.getState();
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -40,7 +42,7 @@ export function useWorkbenchKeys() {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (st.selection) {
           e.preventDefault();
-          st.remove(st.selection);
+          st.removeSelection();
         }
         return;
       }
@@ -49,7 +51,7 @@ export function useWorkbenchKeys() {
         else st.select(null);
         return;
       }
-      const tool = TOOLS.find((x) => x.key === e.key.toLowerCase());
+      const tool = benchTools(st.system).find((x) => x.key === e.key.toLowerCase());
       if (tool) st.setTool(tool.id);
     };
     window.addEventListener('keydown', onKey);
@@ -57,31 +59,28 @@ export function useWorkbenchKeys() {
   }, []);
 }
 
-const HINT: Record<Tool, string> = {
-  select: 'Drag hubs on the grid · Shift-drag for height · Del removes',
-  add: 'Click the plane to place a hub · it links to the selected hub',
-  connect: 'Click hub, then hub · Esc ends the chain',
-  order: 'Click struts in data order · click the last again to undo · Shift-click flips',
-};
-
-export function WorkbenchToolbar() {
-  const tool = useWorkbench((s) => s.tool);
-  const setTool = useWorkbench((s) => s.setTool);
-  const snap = useWorkbench((s) => s.snap);
-  const workZ = useWorkbench((s) => s.workZ);
-  const showParts = useWorkbench((s) => s.showParts);
-  const showChain = useWorkbench((s) => s.showChain);
-  const showLabels = useWorkbench((s) => s.showLabels);
-  const past = useWorkbench((s) => s.past.length);
-  const future = useWorkbench((s) => s.future.length);
-  const wb = useWorkbench((s) => s.set);
-  const undo = useWorkbench((s) => s.undo);
-  const redo = useWorkbench((s) => s.redo);
+export function BenchToolbar() {
+  const system = useBench((s) => s.system);
+  const tool = useBench((s) => s.tool);
+  const setTool = useBench((s) => s.setTool);
+  const snap = useBench((s) => s.snap);
+  const workZ = useBench((s) => s.workZ);
+  const showParts = useBench((s) => s.showParts);
+  const showChain = useBench((s) => s.showChain);
+  const showLabels = useBench((s) => s.showLabels);
+  const past = useBench((s) => pastOf(s).length);
+  const future = useBench((s) => futureOf(s).length);
+  const wb = useBench((s) => s.set);
+  const undo = useBench((s) => s.undo);
+  const redo = useBench((s) => s.redo);
   const view = useStore((s) => s.view);
   const effect = useStore((s) => s.effect);
   const plateIndex = useStore((s) => s.plateIndex);
   const set = useStore((s) => s.set);
   const { plates } = usePlates();
+  const ui = getUI(system);
+  const tools = benchTools(system);
+  const active = tools.find((t) => t.id === tool);
 
   return (
     <div className="viewbar wb-bar">
@@ -95,7 +94,7 @@ export function WorkbenchToolbar() {
       {view === 'assembled' ? (
         <>
           <div className="seg" role="toolbar" aria-label="Tool">
-            {TOOLS.map((t) => (
+            {ui.tools.map((t) => (
               <button key={t.id} className={tool === t.id ? 'on' : ''} aria-pressed={tool === t.id} onClick={() => setTool(t.id)} title={`${t.label} (${t.key.toUpperCase()})`}>
                 {t.label}
               </button>
@@ -111,7 +110,7 @@ export function WorkbenchToolbar() {
               ))}
             </select>
           </label>
-          {tool === 'add' && (
+          {active?.plane && (
             <label className="inline">
               Plane Z
               <input className="num-input" type="number" step={snap || 1} value={workZ} onChange={(e) => wb('workZ', Number(e.target.value))} />
@@ -121,12 +120,16 @@ export function WorkbenchToolbar() {
             <button className={showParts ? 'on' : ''} aria-pressed={showParts} onClick={() => wb('showParts', !showParts)}>
               Parts
             </button>
-            <button className={showChain ? 'on' : ''} aria-pressed={showChain} onClick={() => wb('showChain', !showChain)}>
-              Data path
-            </button>
-            <button className={showLabels ? 'on' : ''} aria-pressed={showLabels} onClick={() => wb('showLabels', !showLabels)}>
-              IDs
-            </button>
+            {ui.overlays?.chain && (
+              <button className={showChain ? 'on' : ''} aria-pressed={showChain} onClick={() => wb('showChain', !showChain)}>
+                Data path
+              </button>
+            )}
+            {ui.overlays?.labels && (
+              <button className={showLabels ? 'on' : ''} aria-pressed={showLabels} onClick={() => wb('showLabels', !showLabels)}>
+                IDs
+              </button>
+            )}
           </div>
           <label className="inline">
             Preview
@@ -146,7 +149,7 @@ export function WorkbenchToolbar() {
               Redo
             </button>
           </div>
-          <span className="wb-hint">{HINT[tool]}</span>
+          {active && <span className="wb-hint">{active.hint}</span>}
         </>
       ) : (
         <div className="seg">

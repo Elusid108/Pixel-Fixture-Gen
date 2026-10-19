@@ -1,35 +1,41 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import type { Params } from '../types';
 import { requestBuild } from '../build/client';
 import { getFixture } from '../fixtures/registry';
 import { resolveParams } from '../fixtures/util';
-import { PRINTERS } from '../printers';
+import { DEFAULT_PRINTER_ID, PRINTERS } from '../printers';
+import { getCore } from '../workbench/cores';
+import { designOf, paramsOf, useBench } from '../workbench/store';
+import { getUI } from '../workbench/uis';
+import { BenchCanvas } from './bench/BenchCanvas';
+import { BenchCatalog } from './bench/BenchCatalog';
+import { BenchToolbar, useBenchKeys } from './bench/BenchToolbar';
 import { Catalog } from './Catalog';
 import { ExportPanel } from './ExportPanel';
 import { Inspector } from './Inspector';
 import { PartsPanel, usePlates } from './PartsPanel';
 import { SchedulePanel } from './SchedulePanel';
 import { useStore, type Effect, type Tab } from './store';
-import { useSnBuildParams } from './useSnPlan';
 import { Viewer } from './Viewer';
-import { WorkbenchBench } from './WorkbenchBench';
-import { WorkbenchCatalog } from './WorkbenchCatalog';
-import { WorkbenchData } from './WorkbenchData';
-import { WorkbenchInspector } from './WorkbenchInspector';
-import { useWorkbenchKeys, WorkbenchToolbar } from './WorkbenchToolbar';
 
 /** Rebuild on any fixture/param/design change, debounced, latest request wins. */
 function useAutoBuild() {
   const mode = useStore((s) => s.mode);
   const catalogId = useStore((s) => s.fixtureId);
   const stored = useStore((s) => s.params[catalogId]);
-  const benchParams = useSnBuildParams();
+  const printerId = useStore((s) => s.printerId) ?? DEFAULT_PRINTER_ID;
+  const system = useBench((s) => s.system);
+  const design = useBench(designOf);
+  const sysParams = useBench(paramsOf);
   const setResult = useStore((s) => s.setResult);
   const setBuilding = useStore((s) => s.setBuilding);
   const latest = useRef(0);
-  const fixtureId = mode === 'workbench' ? 'strut-node' : catalogId;
+  const core = getCore(system);
+  const fixtureId = mode === 'workbench' ? core.moduleId : catalogId;
+  const benchParams = useMemo(() => core.buildParams(design, sysParams, printerId), [core, design, sysParams, printerId]);
   useEffect(() => {
     const ticket = ++latest.current;
-    const params = mode === 'workbench' ? benchParams : resolveParams(getFixture(fixtureId), stored);
+    const params = mode === 'workbench' ? benchParams : catalogParams(fixtureId, stored, printerId);
     const timer = setTimeout(() => {
       setBuilding(true);
       requestBuild(fixtureId, params)
@@ -38,7 +44,14 @@ function useAutoBuild() {
         .finally(() => ticket === latest.current && setBuilding(false));
     }, mode === 'workbench' ? 250 : 120);
     return () => clearTimeout(timer);
-  }, [mode, fixtureId, stored, benchParams, setResult, setBuilding]);
+  }, [mode, fixtureId, stored, benchParams, printerId, setResult, setBuilding]);
+}
+
+/** Catalogue build params. Fixtures that size themselves to the bed declare a hidden `printer` param. */
+function catalogParams(fixtureId: string, stored: Params | undefined, printerId: string): Params {
+  const def = getFixture(fixtureId);
+  const wantsPrinter = def.params.some((p) => p.key === 'printer' && p.hidden);
+  return resolveParams(def, wantsPrinter ? { ...stored, printer: printerId } : stored);
 }
 
 function PrinterPrompt() {
@@ -140,7 +153,7 @@ function ModeSwitch() {
 }
 
 function BenchKeys() {
-  useWorkbenchKeys();
+  useBenchKeys();
   return null;
 }
 
@@ -156,6 +169,9 @@ export function App() {
   const tab = useStore((s) => s.tab);
   const set = useStore((s) => s.set);
   const notes = [...(result?.errors ?? []), ...(result?.warnings ?? [])];
+  const benchUI = getUI(useBench((s) => s.system));
+  const BenchInspector = benchUI.Inspector;
+  const BenchData = benchUI.Data;
 
   return (
     <div className="app">
@@ -187,12 +203,12 @@ export function App() {
         </div>
       </header>
 
-      {bench ? <WorkbenchCatalog /> : <Catalog />}
+      {bench ? <BenchCatalog /> : <Catalog />}
 
       <main className="stage">
-        {bench ? <WorkbenchToolbar /> : <ViewBar />}
+        {bench ? <BenchToolbar /> : <ViewBar />}
         <div className="canvas-wrap">
-          {bench ? <WorkbenchBench /> : <Viewer />}
+          {bench ? <BenchCanvas /> : <Viewer />}
           {(notes.length > 0 || error) && (
             <ul className="notes">
               {error && <li className="err">{error}</li>}
@@ -208,7 +224,7 @@ export function App() {
         </div>
         <section className="drawer">
           <div className="tabs" role="tablist">
-            {TABS.filter((t) => bench || !t.bench).map((t) => (
+            {TABS.filter((t) => !t.bench || (bench && BenchData)).map((t) => (
               <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => set('tab', t.id)}>
                 {t.label}
               </button>
@@ -217,13 +233,13 @@ export function App() {
           <div className="drawer-body">
             {tab === 'schedule' && <SchedulePanel />}
             {tab === 'parts' && <PartsPanel />}
-            {tab === 'data' && bench && <WorkbenchData />}
+            {tab === 'data' && bench && BenchData && <BenchData />}
             {tab === 'export' && <ExportPanel />}
           </div>
         </section>
       </main>
 
-      {bench ? <WorkbenchInspector /> : <Inspector />}
+      {bench ? <BenchInspector /> : <Inspector />}
       {bench && <BenchKeys />}
       {!printerId && <PrinterPrompt />}
     </div>

@@ -13,8 +13,12 @@ export type Params = Record<string, ParamValue>;
 export interface ParamSpec {
   key: string;
   label: string;
-  /** `pixel` is a select whose options come from the pixel library. `json` carries structured data (a workbench design). */
-  type: 'number' | 'select' | 'boolean' | 'pixel' | 'json';
+  /**
+   * `pixel` is a select whose options come from the pixel library. `json` carries structured
+   * data (a workbench design). `image` is a user picture, stored as a small grayscale grid
+   * (see src/fixtures/image.ts); '' means "use the fixture's built-in default".
+   */
+  type: 'number' | 'select' | 'boolean' | 'pixel' | 'json' | 'image';
   default: ParamValue;
   min?: number;
   max?: number;

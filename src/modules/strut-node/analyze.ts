@@ -2,7 +2,6 @@ import type { Vec3 } from '../../types';
 import {
   add,
   angleDeg,
-  applyRot,
   cross,
   dist,
   dot,
@@ -11,7 +10,6 @@ import {
   norm,
   perp,
   perpOf,
-  rotBetweenFrames,
   rotFromTo,
   scale,
   sphereDirs,
@@ -20,6 +18,7 @@ import {
   type SnStrut,
 } from './model';
 import type { SnDims } from './params';
+import { matchSockets } from '../../graph/dedupe';
 
 /**
  * Everything derived from a design that doesn't need a geometry kernel: socket aims,
@@ -131,7 +130,6 @@ export interface Analysis {
 }
 
 const ROUND = (v: number, q: number) => Number((Math.round(v / q) * q).toFixed(6));
-const DIR_TOL = 1.5e-3;
 /** Struts whose cut lengths differ by no more than this print as one part. */
 export const CUT_TOL = 0.3;
 
@@ -360,70 +358,6 @@ export function analyze(design: SnDesign, dims: SnDims): Analysis {
   if (Math.sqrt(spineMax) > dims.spigR - 0.8) warnings.push('The spine key slot breaks through the spigot wall. Use a larger tube.');
 
   return { dims, hubs, struts: infos, types, classes, centroid, requiredAngle: req, warnings };
-}
-
-/* ------------------------------------------------------------------ */
-/* Dedupe: is hub B the same printed part as hub A, rotated?           */
-/* ------------------------------------------------------------------ */
-
-function frame(a: Vec3, b: Vec3): Vec3[] {
-  const y = norm(sub(b, scale(a, dot(a, b))));
-  return [a, y, cross(a, y)];
-}
-
-/**
- * Finds the rotation that maps every socket of `rep` onto a socket of `cand` with the same
- * key (and the same strip face for lit sockets). Mirror images do not match: a left-handed
- * hub is a different print.
- */
-export function matchSockets(rep: SocketInfo[], cand: SocketInfo[]): number[][] | null {
-  if (rep.length !== cand.length || !rep.length) return null;
-  const k1 = rep.map((s) => s.key).sort().join();
-  const k2 = cand.map((s) => s.key).sort().join();
-  if (k1 !== k2) return null;
-
-  const verify = (R: number[][]): boolean => {
-    const used = new Set<number>();
-    for (const s of rep) {
-      const d = applyRot(R, s.dir);
-      const f = applyRot(R, s.face);
-      const j = cand.findIndex((c, i) => !used.has(i) && c.key === s.key && len(sub(d, c.dir)) < DIR_TOL && (!s.lit || len(sub(f, c.face)) < DIR_TOL));
-      if (j < 0) return false;
-      used.add(j);
-    }
-    return true;
-  };
-
-  const s0 = rep[0];
-  if (s0.lit) {
-    const A = [s0.dir, s0.face, cross(s0.dir, s0.face)];
-    for (const c of cand) {
-      if (c.key !== s0.key || !c.lit) continue;
-      const R = rotBetweenFrames(A, [c.dir, c.face, cross(c.dir, c.face)]);
-      if (verify(R)) return R;
-    }
-    return null;
-  }
-  const k = rep.findIndex((s, i) => i > 0 && Math.abs(dot(s.dir, s0.dir)) < 0.999);
-  if (k < 0) {
-    for (const c of cand) {
-      if (c.key !== s0.key) continue;
-      const R = rotFromTo(s0.dir, c.dir);
-      if (verify(R)) return R;
-    }
-    return null;
-  }
-  const ang = dot(s0.dir, rep[k].dir);
-  const A = frame(s0.dir, rep[k].dir);
-  for (const c of cand) {
-    if (c.key !== s0.key) continue;
-    for (const c2 of cand) {
-      if (c2 === c || c2.key !== rep[k].key || Math.abs(dot(c.dir, c2.dir) - ang) > 2e-3) continue;
-      const R = rotBetweenFrames(A, frame(c.dir, c2.dir));
-      if (verify(R)) return R;
-    }
-  }
-  return null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -692,4 +626,4 @@ function labelUp(so: SocketInfo, split: SplitPlan, dims: SnDims, offset: number)
   return perpOf(u, so.dir, 0.2) ?? so.face;
 }
 
-export { DIR_TOL };
+export { DIR_TOL, matchSockets } from '../../graph/dedupe';

@@ -3,9 +3,37 @@ import { resolveParams } from '../fixtures/util';
 import { getPixel, pixelSpec } from '../pixels/library';
 import type { ParamSpec, ParamValue } from '../types';
 import { useStore } from './store';
+import { imageFileToParam, imageParamInfo } from './imageParam';
 
 export function Field({ spec, value, onChange }: { spec: ParamSpec; value: ParamValue; onChange: (v: ParamValue) => void }) {
   const id = `p-${spec.key}`;
+  if (spec.type === 'image') {
+    const info = imageParamInfo(String(value));
+    return (
+      <label className="field" htmlFor={id} title={spec.help}>
+        <span>
+          {spec.label}
+          <output>{info ? `${info.w}×${info.h}` : 'built-in'}</output>
+        </span>
+        <input
+          id={id}
+          type="file"
+          accept="image/*"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (f) onChange(await imageFileToParam(f));
+            e.target.value = '';
+          }}
+        />
+        {info && (
+          <button type="button" className="ghost small" onClick={() => onChange('')}>
+            Use built-in
+          </button>
+        )}
+        {spec.help && <small>{spec.help}</small>}
+      </label>
+    );
+  }
   if (spec.type === 'boolean') {
     return (
       <label className="field toggle" htmlFor={id} title={spec.help}>
@@ -65,7 +93,7 @@ export function Inspector() {
   const values = resolveParams(def, stored);
 
   const groups = new Map<string, ParamSpec[]>();
-  for (const p of def.params) groups.set(p.group ?? 'Settings', [...(groups.get(p.group ?? 'Settings') ?? []), p]);
+  for (const p of def.params.filter((x) => !x.hidden && x.type !== 'json')) groups.set(p.group ?? 'Settings', [...(groups.get(p.group ?? 'Settings') ?? []), p]);
 
   return (
     <aside className="inspector" aria-label="Fixture parameters">

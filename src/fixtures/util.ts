@@ -25,6 +25,7 @@ function coerce(s: ParamSpec, v: Params[string] | undefined): Params[string] {
     return n;
   }
   if (s.type === 'boolean') return v === true || v === 'true';
+  if (s.type === 'json' || s.type === 'image') return String(v);
   const allowed = s.type === 'pixel' ? s.pixels : s.options?.map((o) => o.value);
   return allowed && !allowed.includes(String(v)) ? s.default : String(v);
 }

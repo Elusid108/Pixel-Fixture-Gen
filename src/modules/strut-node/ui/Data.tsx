@@ -1,13 +1,13 @@
-import { formatAddress } from '../schedule/schedule';
-import { useStore } from './store';
-import { useSnPlan } from './useSnPlan';
-import { useWorkbench } from './workbenchStore';
+import { formatAddress } from '../../../schedule/schedule';
+import { useStore } from '../../../ui/store';
+import { useSnPlan } from './usePlan';
+import { useWorkbench } from './useSn';
 
 /**
  * Data & Power: the chain in order, with the patch each lit run gets and the dark runs
  * between them. Patch numbers come from the built schedule, so they match the CSV.
  */
-export function WorkbenchData() {
+export function SnData() {
   const plan = useSnPlan();
   const report = useStore((s) => (s.result?.fixtureId === 'strut-node' ? s.result.report : null));
   const selection = useWorkbench((s) => s.selection);

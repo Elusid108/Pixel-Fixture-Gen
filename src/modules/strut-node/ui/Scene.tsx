@@ -1,32 +1,15 @@
-import { Grid, Html, Line, OrbitControls } from '@react-three/drei';
-import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
+import { Html, Line } from '@react-three/drei';
+import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useMemo, useRef, useState } from 'react';
-import { Color, DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Plane, Quaternion, Vector3 } from 'three';
-import { add, designRadius, len, norm, scale, sub, type SnPlan } from '../modules/strut-node';
-import type { BuiltPart, Vec3 } from '../types';
-import { usePlates } from './PartsPanel';
-import { useStore } from './store';
-import { useSnPlan } from './useSnPlan';
-import { CameraRig, PartMesh, Pixels, PlateScene, SceneBasics, plateFrame, useGeometries, useMaterials } from './Viewer';
-import { useWorkbench } from './workbenchStore';
-
-/* The bench works in the slicer's Z-up millimetres; three.js is Y-up. */
-const toWorld = (p: Vec3) => new Vector3(p[0], p[2], -p[1]);
-const toLocal = (v: Vector3): Vec3 => [v.x, -v.z, v.y];
-
-const UP = new Vector3(0, 1, 0);
-const COLORS = {
-  node: '#8c93b8',
-  controller: '#ffb347',
-  selected: '#2fd4ff',
-  pending: '#8b5cf6',
-  bad: '#ff5d73',
-  strut: '#d9d5cb',
-  dark: '#4a4a58',
-  chainA: new Color('#2fd4ff'),
-  chainB: new Color('#c56bff'),
-  darkRun: '#ffb347',
-};
+import { Color, DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Plane, Vector3 } from 'three';
+import { BENCH_COLORS as COLORS, between, pickMat, snapTo, toLocal, toWorld, UP } from '../../../ui/bench/util';
+import { WorkPlane } from '../../../ui/bench/WorkPlane';
+import type { Vec3 } from '../../../types';
+import type { SceneProps } from '../../../workbench/ui';
+import { add, len, norm, scale, sub } from '../model';
+import type { SnPlan } from '../plan';
+import { useSnPlan } from './usePlan';
+import { useWorkbench } from './useSn';
 
 function useLivePositions() {
   const design = useWorkbench((s) => s.design);
@@ -36,21 +19,6 @@ function useLivePositions() {
     if (drag) m.set(drag.id, drag.pos);
     return m;
   }, [design, drag]);
-}
-
-/** Cylinder between two Z-up points, as position + quaternion + length in world space. */
-function between(a: Vec3, b: Vec3) {
-  const A = toWorld(a);
-  const B = toWorld(b);
-  const mid = A.clone().add(B).multiplyScalar(0.5);
-  const dir = B.clone().sub(A);
-  const length = dir.length();
-  const q = new Quaternion().setFromUnitVectors(UP, dir.normalize());
-  return { mid, q, length };
-}
-
-function snapTo(v: number, step: number) {
-  return step > 0 ? Math.round(v / step) * step : Math.round(v * 10) / 10;
 }
 
 /* ---------------- Nodes ---------------- */
@@ -178,8 +146,6 @@ function NodeHandles({ plan, radius, ghost }: { plan: SnPlan; radius: number; gh
 
 /* ---------------- Struts ---------------- */
 
-const pickMat = new MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false });
-
 function StrutHandles({ plan, radius, hubR, ghost }: { plan: SnPlan; radius: number; hubR: number; ghost: boolean }) {
   const pickR = Math.max(radius * 1.3, 10);
   const design = useWorkbench((s) => s.design);
@@ -304,118 +270,28 @@ function ChainOverlay({ plan, offset }: { plan: SnPlan; offset: number }) {
   );
 }
 
-/* ---------------- Work plane for placing hubs ---------------- */
+/* ---------------- The system scene ---------------- */
 
-function WorkPlane() {
-  const workZ = useWorkbench((s) => s.workZ);
-  const snap = useWorkbench((s) => s.snap);
+/** Hubs, struts, the data path and the hub work plane, inside the shared bench canvas. */
+export function SnScene({ ghost, hideStale }: SceneProps) {
+  const tool = useWorkbench((s) => s.tool);
+  const showChain = useWorkbench((s) => s.showChain);
   const selection = useWorkbench((s) => s.selection);
-  const wb = useWorkbench.getState;
-  const [ghost, setGhost] = useState<Vec3 | null>(null);
-  const at = (e: ThreeEvent<PointerEvent | MouseEvent>): Vec3 => {
-    const p = toLocal(e.point);
-    return [snapTo(p[0], snap), snapTo(p[1], snap), workZ];
-  };
+  const plan = useSnPlan();
+  const g = ghost && !hideStale;
+  const handleR = ghost ? plan.dims.coreR * 1.05 : Math.max(7, plan.dims.coreR * 0.6);
+  const strutR = ghost ? plan.dims.tubeR * 1.1 : Math.max(2.5, plan.dims.tubeR * 0.35);
   return (
     <>
-      <Grid position={[0, workZ, 0]} args={[1600, 1600]} cellSize={Math.max(5, snap || 10)} sectionSize={100} cellColor="#2a3a4a" sectionColor="#2fd4ff" fadeDistance={2400} sectionThickness={0.6} cellThickness={0.4} />
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, workZ, 0]}
-        onPointerMove={(e) => setGhost(at(e))}
-        onPointerOut={() => setGhost(null)}
-        onClick={(e) => {
-          if (e.delta > 4) return;
-          e.stopPropagation();
-          wb().addNode(at(e), selection?.kind === 'node' ? selection.id : null);
-        }}
-      >
-        <planeGeometry args={[4000, 4000]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={DoubleSide} />
-      </mesh>
-      {ghost && (
-        <mesh position={toWorld(ghost)}>
-          <sphereGeometry args={[8, 16, 12]} />
-          <meshBasicMaterial color={COLORS.selected} transparent opacity={0.5} />
-        </mesh>
-      )}
+      <NodeHandles plan={plan} radius={handleR} ghost={g} />
+      <StrutHandles plan={plan} radius={strutR} hubR={handleR} ghost={g} />
+      {showChain && <ChainOverlay plan={plan} offset={plan.dims.tubeR + 8} />}
+      {tool === 'add' && <WorkPlane onPick={(p) => useWorkbench.getState().addNode(p, selection?.kind === 'node' ? selection.id : null)} />}
     </>
   );
 }
 
-/* ---------------- The bench ---------------- */
-
-export function WorkbenchBench() {
-  const result = useStore((s) => s.result);
-  const view = useStore((s) => s.view);
-  const plateIndex = useStore((s) => s.plateIndex);
-  const selectedPart = useStore((s) => s.selectedPart);
-  const design = useWorkbench((s) => s.design);
-  const tool = useWorkbench((s) => s.tool);
-  const showParts = useWorkbench((s) => s.showParts);
-  const showChain = useWorkbench((s) => s.showChain);
-  const frameSeq = useWorkbench((s) => s.frameSeq);
-  const drag = useWorkbench((s) => s.drag);
-  const plan = useSnPlan();
-  const built = result?.fixtureId === 'strut-node' ? result : null;
-  const parts: BuiltPart[] = built?.parts ?? [];
-  const geos = useGeometries(parts);
-  const mats = useMaterials();
-  const { printer, plates } = usePlates();
-  const plate = plates[Math.min(plateIndex, plates.length - 1)];
-  const radius = designRadius(design);
-
-  const frame = useMemo(() => {
-    if (view === 'plates') return plateFrame(printer);
-    if (!design.nodes.length) return { center: new Vector3(0, 60, 0), radius: 300 };
-    const c = design.nodes.reduce<Vec3>((s, n) => add(s, scale(n.pos, 1 / design.nodes.length)), [0, 0, 0]);
-    // The bench canvas is short and wide; give the whole design room.
-    return { center: toWorld(c), radius: radius * 1.5 };
-    // Re-frame on a new design or view, not on every edit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, printer, frameSeq, built ? 1 : 0]);
-
-  const ghost = showParts && parts.length > 0;
-  const handleR = ghost ? plan.dims.coreR * 1.05 : Math.max(7, plan.dims.coreR * 0.6);
-  const strutR = ghost ? plan.dims.tubeR * 1.1 : Math.max(2.5, plan.dims.tubeR * 0.35);
-  const hideStale = drag !== null;
-
-  return (
-    <Canvas
-      shadows
-      camera={{ fov: 35, position: [600, 500, 800] }}
-      dpr={[1, 2]}
-      gl={{ antialias: true }}
-      onPointerMissed={(e) => {
-        if (e.button === 0 && tool !== 'add') useWorkbench.getState().select(null);
-      }}
-    >
-      <SceneBasics size={radius * 2} />
-      <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
-      <CameraRig center={frame.center} radius={frame.radius} viewKey={`wb-${view}-${printer.id}-${frameSeq}-${built ? 1 : 0}`} />
-      {view === 'assembled' && (
-        <>
-          <group rotation={[-Math.PI / 2, 0, 0]}>
-            {showParts &&
-              !hideStale &&
-              parts.map((p) =>
-                p.instances.map((inst, i) => (
-                  <PartMesh key={`${p.id}-${i}`} geometry={geos.get(p.id)!} material={p.id === selectedPart ? mats.selected : mats[p.role]} matrix={inst} />
-                )),
-              )}
-            {showParts && built && !hideStale && <Pixels result={built} size={plan.dims.tubeR * 9} diffuser={mats.diffuser} />}
-          </group>
-          <NodeHandles plan={plan} radius={handleR} ghost={ghost && !hideStale} />
-          <StrutHandles plan={plan} radius={strutR} hubR={handleR} ghost={ghost && !hideStale} />
-          {showChain && <ChainOverlay plan={plan} offset={plan.dims.tubeR + 8} />}
-          {tool === 'add' && <WorkPlane />}
-        </>
-      )}
-      {view === 'plates' && plate && (
-        <group rotation={[-Math.PI / 2, 0, 0]}>
-          <PlateScene parts={parts} geos={geos} mats={mats} printer={printer} plate={plate} selected={selectedPart} />
-        </group>
-      )}
-    </Canvas>
-  );
+/** Pixel glow size on the bench follows the tube. */
+export function useSnPixelSize(): number {
+  return useSnPlan().dims.tubeR * 9;
 }
