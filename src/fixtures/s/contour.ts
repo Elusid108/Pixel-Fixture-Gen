@@ -1,4 +1,5 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import type { P2 } from '../../geom/geo';
 import { Geo } from '../../geom/geo';
 import { Rx, T } from '../../geom/mat';
@@ -44,6 +45,9 @@ export const CONTOUR_PRESETS: Record<string, () => GrayImage> = {
  * up through the plate below it, so their heads light the band's own cavity and their bodies
  * hang down through clearance holes into the hollow base. Chase the bands bottom to top for
  * "rising water".
+ *
+ * Fit: each tray's wall foot drops into a shallow locating groove in the plate below, the wall
+ * plus the fit gap wide, so the stack registers itself. Nodes take the seat clearance.
  */
 export const contour: FixtureDef = {
   id: 'contour',
@@ -73,7 +77,7 @@ export const contour: FixtureDef = {
     { key: 'bandH', label: 'Band height', type: 'number', default: 14, min: 12, max: 20, step: 1, unit: 'mm', group: 'Shape', help: 'Each band is a hollow tray this tall. The node head needs about 12 mm.' },
     { key: 'target', label: 'Node budget', type: 'number', default: 32, min: 16, max: 48, step: 1, group: 'Pixels', help: 'Shared out by visible band area, 2 to 6 per band.' },
     { key: 'pixel', label: 'Node', type: 'pixel', default: 'node-12-bullet', pixels: ['node-12-bullet', 'node-12-bullet-12v'], group: 'Pixels' },
-    { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.1, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -82,7 +86,8 @@ export const contour: FixtureDef = {
     const S = num(params, 'size');
     const hb = num(params, 'bandH');
     const target = num(params, 'target');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const side = sideOf(params);
     const nodeR = (pixel.shape.kind === 'round' ? pixel.shape.d : 12) / 2;
     const bodyL = pixel.shape.depth;
     const warnings: string[] = [];
@@ -190,6 +195,16 @@ export const contour: FixtureDef = {
       return out;
     };
 
+    // Locating groove for tray k in the plate it stands on: the wall footprint grown by half a gap
+    // each side, as deep as the wall foot reaches below that plate's top.
+    const lip = 0.8;
+    const footGroove = (k: number): Manifold | null => {
+      if (k >= nb) return null;
+      const zPlate = k === 0 ? zBase : zTop(k - 1);
+      const r = regions[k];
+      return g.extrude(r.offset(side, 'Round').subtract(r.offset(-wall - side, 'Round')), zPlate - lip, zPlate + 1);
+    };
+
     const parts: PartSpec<Manifold>[] = [];
 
     /* ---------- Base: hollow plinth, top plate printed on the bed ---------- */
@@ -198,6 +213,7 @@ export const contour: FixtureDef = {
       g.extrude(g.roundRect(B - 6, B - 6, 3), -1, zBase - 2.5),
       g.box([-B / 2 - 1, B / 2 - 12, -1], [-B / 2 + 4, B / 2 - 2, 8]), // cable exit, back-left
       ...holesFor(-1),
+      footGroove(0),
     ]);
     const base = layFlat(g, baseAsm, Rx(180));
     parts.push({ id: 'base', name: 'Base', role: 'body', solid: base.solid, instances: [base.instance], explode: [0, 0, -1], note: 'Hollow. The ESP32 and node tails live inside.' });
@@ -206,7 +222,7 @@ export const contour: FixtureDef = {
     for (let k = 0; k < nb; k++) {
       const r = regions[k];
       const z0 = zTop(k) - hb;
-      const trayAsm = g.cut(g.union([g.extrude(r, zTop(k) - tp, zTop(k)), g.extrude(r.subtract(r.offset(-wall, 'Round')), z0, zTop(k) - tp + 0.01)]), holesFor(k));
+      const trayAsm = g.cut(g.union([g.extrude(r, zTop(k) - tp, zTop(k)), g.extrude(r.subtract(r.offset(-wall, 'Round')), z0 - lip, zTop(k) - tp + 0.01)]), [...holesFor(k), footGroove(k + 1)]);
       const t = layFlat(g, trayAsm, Rx(180));
       parts.push({
         id: `band-${k + 1}`,
@@ -238,9 +254,15 @@ export const contour: FixtureDef = {
     });
 
     const px = pixels.length;
+    const bandIds = regions.map((_, k) => `band-${k + 1}`);
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Fit the controller', parts: ['base'], hardware: 'ESP32 (WLED), 4 rubber feet', note: 'Inside the base, cable out the back-left.' },
+        { title: 'Band 1 nodes', parts: ['base'], hardware: `${bandNodes[0]?.length ?? 0} × ${pixel.name}`, note: 'Push up through the base top from below.' },
+        { title: 'Stack the bands', parts: bandIds, hardware: `${px} nodes in all`, note: 'Each band’s wall drops into the groove in the plate below. Push the next band’s nodes up through it before stacking on. Chain band to band through the lead holes.' },
+      ],
       schedule,
       hardware: [
         { item: 'ESP32 (WLED)', qty: 1, note: `Inside the base. Map ${nb} segments, one per band.` },

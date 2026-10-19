@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, mul, Rz, T } from '../../geom/mat';
 import { splitParts, splitToBed } from '../../geom/split';
@@ -20,6 +21,9 @@ import { assembledBounds, fmt, loftBand, runtimeHours, SPLIT_PARAMS, splitCfg } 
  *
  * It runs on two 18650 cells in the base with an ESP32, and the warnings give a runtime at
  * the average level you set.
+ *
+ * Fit: petal tabs drop into their sockets with the fit gap in width and thickness and stand on
+ * the PCB; split keys take the gap too. PCBs and the jewel take the seat clearance.
  */
 
 /** 14 inches. Taller than this and the centrepiece blocks the view across the table. */
@@ -103,15 +107,16 @@ export const bloom: FixtureDef = {
     { key: 'pixel', label: 'Petal pixel', type: 'pixel', default: 'pcb-9-ws2812b', pixels: ['pcb-9-ws2812b', 'pcb-9-sk6812-rgbw'], group: 'Pixels' },
     { key: 'mah', label: '18650 capacity', type: 'number', default: 3000, min: 2000, max: 3500, step: 100, unit: 'mAh', group: 'Battery' },
     { key: 'level', label: 'Average level', type: 'number', default: 20, min: 5, max: 100, step: 5, unit: '%', group: 'Battery', help: 'Average brightness across the evening, for the runtime estimate.' },
-    { key: 'tol', label: 'Socket clearance', type: 'number', default: 0.15, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
     ...SPLIT_PARAMS,
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
     const split = splitCfg(params);
     const pixel = getPixel(str(params, 'pixel'));
     const jewel = getPixel(pixel.chPerPx === 4 ? 'jewel-7-sk6812-rgbw' : 'jewel-7-ws2812b');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const side = sideOf(params);
     const plan = bloomTiers(str(params, 'tiers'), num(params, 'height'), split.printer.z);
     const { tiers, zt, base } = plan;
     const warnings: string[] = [];
@@ -165,7 +170,7 @@ export const bloom: FixtureDef = {
     for (const t of tiers)
       for (let k = 0; k < t.count; k++) {
         const F = socketFrame(t, k);
-        cuts.push(g.place(g.box([-t.tab / 2 - tol, -TAB_T / 2 - tol, -TAB_L], [t.tab / 2 + tol, TAB_T / 2 + tol, 3]), F));
+        cuts.push(g.place(g.box([-t.tab / 2 - side, -TAB_T / 2 - side, -TAB_L], [t.tab / 2 + side, TAB_T / 2 + side, 3]), F));
         cuts.push(g.place(socketCutter(g, pixel, { tol, wire: 0, over: 0.5 }), mul(F, T(0, 0, -TAB_L))));
         cuts.push(g.place(g.cylZ(1.6, -TAB_L - 24, -TAB_L - 2), F));
       }
@@ -255,6 +260,16 @@ export const bloom: FixtureDef = {
     if (peakA > 2) warnings.push(`Full white draws ${peakA.toFixed(1)} A; set WLED's current limiter to 2 A for the boost board.`);
     warnings.push(`${fmt(height)} mm tall, ${fmt(box.max[0] - box.min[0])} mm across.`);
 
+    const ids = (pre: string) => parts.filter((p) => p.id === pre || p.id.startsWith(`${pre}-p`)).map((p) => p.id);
+    const assembly = [
+      { title: 'Inserts', parts: ids('tray'), hardware: '4 × M3 heat-set insert', note: 'Into the four tray bosses.' },
+      { title: 'Light the receptacle', parts: ids('receptacle'), hardware: `${px - 7} × ${pixel.name}, ${jewel.name}`, note: 'One PCB face up at the bottom of each petal socket, jewel on top. Wires out the holes underneath.' },
+      { title: 'Receptacle on the lid', parts: [...ids('receptacle'), ...ids('lid')], hardware: '3 × M3×10 pan-head self-tapping screw', note: 'From below, through the lid. Leads down the centre hole.' },
+      { title: 'Fill the tray', parts: ids('tray'), hardware: '2 × 18650, holder, IP5306 board, ESP32-C3, 12 mm switch, 4 rubber feet', note: 'USB-C to the wall slot, switch in its hole. Feet on.' },
+      { title: 'Close the base', parts: [...ids('lid'), ...ids('tray')], hardware: '4 × M3×8 countersunk screw', note: 'Lid onto the tray.' },
+      { title: 'Stamens', parts: ids('stamen'), hardware: 'CA glue', note: 'Over the jewel.' },
+      { title: 'Petals', parts: tiers.flatMap((_, ti) => ids(`petal-${ti + 1}`)), note: 'Inner tier first. Each tab only fits its own tier; it stands on the PCB.' },
+    ];
     const hardware: HardwareLine[] = [
       { item: '18650 cell (protected, flat top)', qty: 2, note: `${mah} mAh, in parallel` },
       { item: '2×18650 parallel holder', qty: 1 },
@@ -266,6 +281,6 @@ export const bloom: FixtureDef = {
       { item: 'M3×10 pan-head self-tapping screw', qty: 3, note: 'Lid into the receptacle, from below' },
       { item: 'Ø10 mm rubber foot', qty: 4 },
     ];
-    return { parts, pixels, schedule, hardware, warnings };
+    return { parts, pixels, schedule, hardware, warnings, assembly };
   },
 };

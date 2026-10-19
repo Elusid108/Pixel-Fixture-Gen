@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, applyDir, mul, Rx, Rz, T } from '../../geom/mat';
 import { invert, maxArcDeg, splitParts, splitToBed } from '../../geom/split';
@@ -21,6 +22,11 @@ import { fmt, geodesic, icosaUnit, SPLIT_PARAMS, splitCfg } from './common';
  *
  * A polar tube runs pole to pole through the meridian and carries a small geodesic sun at the
  * centre; the whole sphere hangs from the north pole.
+ *
+ * Fit: each half-lap is cut half a gap past the other ring on every face, so the laps meet with
+ * the full fit gap. The snap diffusers clear the channel by half a gap; a 0.3 mm bead on the
+ * lower lip rides over the channel wall and drops into a matching detent (the snap, on top of
+ * the gap). Split keys take the gap; the Ø8 polar tube is hardware.
  */
 
 const EPS = 23.4;
@@ -79,8 +85,8 @@ export const armillary: FixtureDef = {
     { key: 'pixel', label: 'Strip', type: 'pixel', default: 'strip-60-ws2812b', pixels: ['strip-60-ws2812b', 'strip-60-ws2815', 'strip-30-ws2812b'], group: 'Pixels' },
     { key: 'sun', label: 'Geodesic sun', type: 'boolean', default: true, group: 'Sun' },
     { key: 'sunD', label: 'Sun diameter', type: 'number', default: 110, min: 80, max: 150, step: 5, unit: 'mm', group: 'Sun' },
-    { key: 'tol', label: 'Lap clearance', type: 'number', default: 0.15, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
     ...SPLIT_PARAMS,
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -88,7 +94,8 @@ export const armillary: FixtureDef = {
     const D = num(params, 'diameter');
     const W = num(params, 'band');
     const Tb = num(params, 'depth');
-    const tol = num(params, 'tol');
+    const tol = sideOf(params); // per face, so two faces make the fit gap
+    const seat = seatOf(params);
     const pixel = getPixel(str(params, 'pixel'));
     const pitch = pixel.shape.kind === 'strip' ? pixel.shape.pitch : 1000 / 60;
     const R = D / 2;
@@ -103,10 +110,17 @@ export const armillary: FixtureDef = {
     const c1 = c0 + 10.6;
     const cd = 4.5;
     if (c1 + cd + 1.5 > W) warnings.push(`A ${W} mm band is tight for the 10 mm strip channel. Use 22 mm or more.`);
+    // Snap detent: a V-groove in the channel's lower wall that the diffuser's bead drops into.
+    const snap = 0.3; // bead interference while it rides in
+    const rBead = R - 1.6;
+    const dv = snap + tol; // detent depth and half-width at the wall: the bead grown by half a gap
     const band: P2[] = [
       [R - Tb, 0],
       [R, 0],
       [R, c0],
+      [rBead + dv, c0],
+      [rBead, c0 - dv],
+      [rBead - dv, c0],
       [R - cd, c0],
       [R - cd, c1],
       [R, Math.min(W - 1, c1 + cd)],
@@ -166,23 +180,30 @@ export const armillary: FixtureDef = {
     }
 
     /* ---------- Snap diffusers: arcs between under-crossings, sized to the bed ---------- */
-    const zA0 = c0 + 0.15;
-    const zB1 = Math.min(W - 1, c1 + cd) - 1.7;
+    // Half a gap everywhere: the face plate off the band, the lower lip above the channel wall,
+    // the upper lip square to the 45° roof. The bead is the snap on top of that.
+    const rp = R + tol;
+    const zA0 = c0 + tol;
+    const zB1 = Math.min(W - 1, c1 + cd) - 1.5 - tol * Math.SQRT2;
+    const hb = snap + tol; // bead height below the lower lip
     const diff: P2[] = [
-      [R + 0.1, 0.5],
-      [R + 1.7, 0.5],
-      [R + 1.7, W - 0.5],
-      [R + 0.1, W - 0.5],
-      [R + 0.1, zB1],
+      [rp, 0.5],
+      [rp + 1.6, 0.5],
+      [rp + 1.6, W - 0.5],
+      [rp, W - 0.5],
+      [rp, zB1],
       [R - 1.5, zB1],
       [R - 1.5, zB1 - 1.2],
-      [R + 0.1, zB1 - 1.2],
-      [R + 0.1, zA0 + 1.2],
+      [rp, zB1 - 1.2],
+      [rp, zA0 + 1.2],
       [R - 2.5, zA0 + 1.2],
       [R - 2.5, zA0],
-      [R + 0.1, zA0],
+      [rBead - hb, zA0],
+      [rBead, zA0 - hb],
+      [rBead + hb, zA0],
+      [rp, zA0],
     ];
-    const maxDeg = split.on ? maxArcDeg(R - 2.5, R + 1.7, W, split.printer) : 180;
+    const maxDeg = split.on ? maxArcDeg(R - 2.5, rp + 1.6, W, split.printer) : 180;
     const runsFor = (A: RingDef): [number, number][] => {
       // Gaps: under-crossings and the poles. Runs are what's left, in degrees.
       const gaps = zones
@@ -218,7 +239,7 @@ export const armillary: FixtureDef = {
         solid,
         instances: grp.map((x) => mul(P.get(x.ring.id)!, Rz(x.a0))),
         explode: [0, 0, 0],
-        note: 'Natural PETG, standing on its edge. Presses into the channel over the strip.',
+        note: 'Natural PETG, standing on its edge. Snaps into the channel over the strip: the bead rides over the wall and drops into the detent.',
       });
     }
 
@@ -245,7 +266,7 @@ export const armillary: FixtureDef = {
       const seats = ico.map((d) => g.place(g.cylZ(pcbR + 1.6, -6, 0, 0, 0, 24), frameZ(d, perp(d), scale(d, rc))));
       const core = g.cut(g.M.hull(seats), [
         g.cylZ(rodR, -Rs, Rs),
-        ...ico.map((d) => g.place(socketCutter(g, getPixel('pcb-9-ws2812b'), { tol: 0.15, wire: 6, over: 1 }), frameZ(d, perp(d), scale(d, rc)))),
+        ...ico.map((d) => g.place(socketCutter(g, getPixel('pcb-9-ws2812b'), { tol: seat, wire: 6, over: 1 }), frameZ(d, perp(d), scale(d, rc)))),
       ]);
       const lay = layFlat(g, core, T(0, 0, 0), Mc);
       parts.push({ id: 'sun-core', name: 'Sun core', role: 'body', solid: lay.solid, instances: [lay.instance], note: '10 pixel PCBs facing out at the icosahedron points. Slides on the polar tube.' });
@@ -268,7 +289,7 @@ export const armillary: FixtureDef = {
         const mid = (a + b) / 2;
         for (let i = 0; i < k; i++) {
           const ang = ((mid + ((i - (k - 1) / 2) * pitch * 180) / (Math.PI * R)) * Math.PI) / 180;
-          const pLocal: Vec3 = [(R + 1.7) * Math.cos(ang), (R + 1.7) * Math.sin(ang), (c0 + c1) / 2];
+          const pLocal: Vec3 = [(rp + 1.6) * Math.cos(ang), (rp + 1.6) * Math.sin(ang), (c0 + c1) / 2];
           const M = P.get(id)!;
           pixels.push({ pos: apply(M, pLocal), normal: norm(applyDir(M, [Math.cos(ang), Math.sin(ang), 0])), unit: `L4-${id}` });
         }
@@ -304,6 +325,17 @@ export const armillary: FixtureDef = {
       { item: '3-core 22 AWG wire', qty: Math.ceil((D * 3.2) / 100) / 10, note: 'Metres: jumpers at gaps and the feed' },
     ];
     if (pins) hardware.push({ item: '1.75 mm filament pins', qty: pins, note: 'Ring arc joints' });
-    return { parts, pixels, schedule, hardware, warnings };
+    const ids = (pre: string) => parts.filter((p) => p.id === pre || p.id.startsWith(`${pre}-`)).map((p) => p.id);
+    const strip = (id: RingDef['id']) => `${ringPx.get(id)} px ${pixel.name}`;
+    const assembly = [
+      ...(split.on ? [{ title: 'Join the arcs', parts: [...ids('ring-mer'), ...ids('ring-equ'), ...ids('ring-ecl')], hardware: pins ? `${pins} × 1.75 mm filament pin, CA glue` : 'CA glue', note: 'Each ring’s arcs on their keys. Keep the laps clean of glue.' }] : []),
+      { title: 'Meridian on the tube', parts: ids('ring-mer'), hardware: 'Ø8 aluminium tube, 4 × shaft collar', note: 'Tube through both poles, a collar either side of each. Hang it from the north pole.' },
+      ...(sunOn ? [{ title: 'Sun', parts: ['sun-core', 'sun-half'], hardware: '10 × 9 mm WS2812B PCB', note: 'PCBs into the core, wires down the tube. Core onto the tube at the centre, halves closed round it.' }] : []),
+      { title: 'Equator', parts: ids('ring-equ'), note: 'Drops onto the meridian laps from inside.' },
+      { title: 'Ecliptic', parts: ids('ring-ecl'), note: 'Onto its laps at 23.4°.' },
+      { title: 'Strips', parts: [...ids('ring-mer'), ...ids('ring-equ'), ...ids('ring-ecl')], hardware: `${strip('MER')}, ${strip('EQU')}, ${strip('ECL')}, 3-core jumpers`, note: 'Into the channels, LEDs out. Jump each under-crossing on wire.' },
+      { title: 'Diffusers', parts: ids('diffuser'), note: 'Press each arc into the channel over its run until the bead clicks.' },
+    ];
+    return { parts, pixels, schedule, hardware, warnings, assembly };
   },
 };

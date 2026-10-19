@@ -1,4 +1,5 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { DEFAULT_FIT_GAP, FIT_PARAMS, fitOf, seatOf } from '../fit';
 import { Geo } from '../geom/geo';
 import { mul, Rz, T } from '../geom/mat';
 import { getPixel, type PixelType } from '../pixels/library';
@@ -33,7 +34,10 @@ export interface HiveTileOpts {
   wall: number;
   magnets: boolean;
   bowties: boolean;
+  /** Radial seat clearance around each node. */
   tol: number;
+  /** Fit gap between printed parts (layers in the shell, bowtie keys in their pockets). Default 0.4. */
+  fit?: number;
   pixel: PixelType;
   /** Keyhole entry points on the back, along local Y (mm). Default ±0.45 × the outer apothem. */
   keyholeY?: number[];
@@ -106,8 +110,10 @@ export interface HiveTileSolids {
   carrier: Manifold;
   baffle: Manifold;
   diffuser: Manifold;
-  /** One bowtie key, waist on the origin. */
+  /** One bowtie key, waist on the origin, resting on z=0. */
   key: Manifold;
+  /** Key thickness: the pocket depth less half the fit gap. */
+  keyT: number;
   /** The baffle's 2D section (outline minus cell openings), for clipping without 3D booleans. */
   baffleCS: CrossSection;
   /** One pixel seat, emitter face at z=0 (place it at the carrier's top). */
@@ -127,6 +133,8 @@ export function hiveLabel(g: Geo, text: string, x: number, y: number): Manifold 
 export function hiveTileSolids(g: Geo, o: HiveTileOpts): HiveTileSolids {
   const d = hiveTileDims(o);
   const { floorT, carrierT, Ai, A, Al, zLedge, Hs, edgeLen, cells, cellIn } = d;
+  const side = (o.fit ?? DEFAULT_FIT_GAP) / 2;
+  const pocketD = 2;
 
   /* ---------- Shell ---------- */
   const shellCuts: Manifold[] = [g.extrude(g.hex(Al), floorT, Hs + 1), g.extrude(g.hex(Ai), zLedge, Hs + 1)];
@@ -138,7 +146,7 @@ export function hiveTileSolids(g: Geo, o: HiveTileOpts): HiveTileSolids {
       for (const s of [-1, 1]) shellCuts.push(edgeFeature(g.cylX(3.15, A - 3.2, A + 0.1, (s * edgeLen) / 4, floorT + 8), k));
     }
     if (o.bowties) {
-      shellCuts.push(edgeFeature(g.extrude(g.halfBowtie(8, 14, 10).rotate(90).translate([A, 0]), -1, 2.0), k));
+      shellCuts.push(edgeFeature(g.extrude(g.halfBowtie(8, 14, 10).rotate(90).translate([A, 0]), -1, pocketD), k));
     }
   }
   for (const y of o.keyholeY ?? [-A * 0.45, A * 0.45]) shellCuts.push(g.keyhole(floorT).translate([0, y, 0]));
@@ -147,18 +155,20 @@ export function hiveTileSolids(g: Geo, o: HiveTileOpts): HiveTileSolids {
   if (label) shellCuts.push(hiveLabel(g, label, 0, -A * 0.18));
   const shell = g.cut(g.extrude(g.hex(A), 0, Hs), shellCuts);
 
-  /* ---------- Carrier, baffle, diffuser ---------- */
+  /* ---------- Carrier, baffle, diffuser: the shell well less the fit gap ---------- */
   const socket = socketCutter(g, o.pixel, { tol: o.tol });
   const carrier = g.cut(
-    g.extrude(g.hex(Ai - 0.3), 0, carrierT),
+    g.extrude(g.hex(Ai - side), 0, carrierT),
     cells.map(([x, y]) => g.place(socket, T(x, y, carrierT))),
   );
   const cellHoles = g.CS.union(cells.map(([x, y]) => g.hex(cellIn, false, x, y)));
-  const baffleCS = g.hex(Ai - 0.3).subtract(cellHoles);
+  const baffleCS = g.hex(Ai - side).subtract(cellHoles);
   const baffle = g.extrude(baffleCS, 0, o.baffle);
-  const diffuser = g.extrude(g.hex(Ai - 0.25), 0, o.diffuser);
-  const key = g.extrude(g.bowtie(7.7, 13.7, 9.8), 0, 1.8);
-  return { dims: d, shell, carrier, baffle, diffuser, key, baffleCS, socket };
+  const diffuser = g.extrude(g.hex(Ai - side), 0, o.diffuser);
+  // Key: both tiles' pockets less half a gap on every face (square to the flanks), half a gap short.
+  const keyT = pocketD - side;
+  const key = g.extrude(g.bowtie(8, 14, 10).offset(-side, 'Miter'), 0, keyT);
+  return { dims: d, shell, carrier, baffle, diffuser, key, keyT, baffleCS, socket };
 }
 
 /**
@@ -201,7 +211,7 @@ export const hive: FixtureDef = {
     { key: 'wall', label: 'Shell wall', type: 'number', default: 4.2, min: 3.6, max: 6, step: 0.2, unit: 'mm', group: 'Shape' },
     { key: 'magnets', label: 'Magnet pockets', type: 'boolean', default: true, group: 'Joinery' },
     { key: 'bowties', label: 'Bowtie keys', type: 'boolean', default: true, group: 'Joinery' },
-    { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.1, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -215,7 +225,8 @@ export const hive: FixtureDef = {
       wall: num(params, 'wall'),
       magnets: bool(params, 'magnets'),
       bowties: bool(params, 'bowties'),
-      tol: num(params, 'tol'),
+      tol: seatOf(params),
+      fit: fitOf(params),
       pixel,
     });
     const { pitch: p, nodeD, bw, cellIn, Ai, A, zLedge, zBaffle, zDiff, Hs, cells } = tile.dims;
@@ -237,7 +248,8 @@ export const hive: FixtureDef = {
         name: 'Bowtie key',
         role: 'body',
         solid: tile.key,
-        instances: [0, 2, 4].map((k) => mul(Rz(30 + 60 * k), T(A, 0, 0), Rz(90), T(0, 0, -0.01))),
+        // Seated against the pocket floor, so the key sits half a gap inside the back face.
+        instances: [0, 2, 4].map((k) => mul(Rz(30 + 60 * k), T(A, 0, 2 - tile.keyT), Rz(90))),
         explode: [0, 0, -1.6],
         note: 'One per seam. Glue optional.',
       });
@@ -253,6 +265,14 @@ export const hive: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        ...(bool(params, 'magnets') ? [{ title: 'Magnets', parts: ['shell'], hardware: '12 × 6×3 mm magnet, CA glue', note: 'Every edge: left pocket N-out, right pocket S-out.' }] : []),
+        { title: 'Push the nodes', parts: ['carrier'], hardware: `${cells.length} × ${pixel.name}`, note: 'Through the carrier from the back, serpentine from cell 1.' },
+        { title: 'Carrier in', parts: ['carrier', 'shell'], hardware: 'JST-SM pigtail pair', note: 'Onto the shell ledge. Leads out through any edge notch.' },
+        { title: 'Baffle and diffuser', parts: ['baffle', 'diffuser'], note: 'Baffle on the carrier, cells over the nodes. Diffuser on top, flush with the rim.' },
+        ...(bool(params, 'bowties') ? [{ title: 'Join tiles', parts: ['bowtie'], note: 'Butt the edges, magnets pull them together. One key per seam into the back pockets.' }] : []),
+        { title: 'Hang it', hardware: '2 × #6 / M3.5 pan-head screw', note: 'On the keyholes.' },
+      ],
       ports,
       schedule: [
         {

@@ -1,4 +1,5 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { mul, Rx, Rz, T } from '../../geom/mat';
 import { getPixel } from '../../pixels/library';
@@ -124,6 +125,9 @@ export function sceneLayers(g: Geo, scene: Scene, w: number, h: number): CrossSe
  * stands just behind the proscenium. A front-of-house strip under the teaser grazes its face;
  * three electrics on the grid light the silhouette layers from behind. Front light alone and
  * the gauze reads as a solid wall; bring up the electrics and it vanishes into the scene.
+ *
+ * Fit: panels slide into their grooves with the fit gap in thickness and width and half a gap
+ * under the lid; the lid skirt clears the walls by half a gap. Strips take the seat clearance.
  */
 export const scrim: FixtureDef = {
   id: 'scrim-box',
@@ -152,6 +156,7 @@ export const scrim: FixtureDef = {
     { key: 'height', label: 'Opening height', type: 'number', default: 105, min: 80, max: 140, step: 5, unit: 'mm', group: 'Box' },
     { key: 'spacing', label: 'Layer spacing', type: 'number', default: 16, min: 12, max: 24, step: 1, unit: 'mm', group: 'Box', help: 'More depth between layers means more parallax as you move.' },
     { key: 'mesh', label: 'Thread pitch', type: 'number', default: 1.6, min: 1.2, max: 2.4, step: 0.1, unit: 'mm', group: 'Scrim', help: 'Threads are 0.45 mm wide. A finer pitch is more opaque under front light.' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -162,6 +167,9 @@ export const scrim: FixtureDef = {
     const Hin = num(params, 'height');
     const sp = num(params, 'spacing');
     const mp = num(params, 'mesh');
+    const fit = fitOf(params);
+    const side = sideOf(params);
+    const seat = seatOf(params);
     const warnings: string[] = [];
 
     /* ---------- Layout ---------- */
@@ -169,7 +177,7 @@ export const scrim: FixtureDef = {
     const tf = 3; // floor
     const gd = 1.5; // groove depth
     const pt = 1.6; // panel thickness
-    const gw = pt + 0.4;
+    const gw = pt + fit; // groove
     const Hs = tf + Hin; // top of walls
     const lt = 4.5; // lid
     const wedge = 12;
@@ -177,8 +185,8 @@ export const scrim: FixtureDef = {
     const yl = [1, 2, 3].map((k) => ys + k * sp); // near, mid, far layers
     const yc = yl[2] + sp; // cyc (back wall inner face)
     const elec = [(yl[0] + yl[1]) / 2, (yl[1] + yl[2]) / 2, (yl[2] + yc) / 2];
-    const Wp = W + 2 * gd - 0.4; // panel width
-    const Hp = Hin + gd - 0.3; // panel height
+    const Wp = W + 2 * gd - fit; // panel width: groove to groove less the fit gap
+    const Hp = Hin + gd - side; // panel height: half a gap under the lid
     const pitchOf = (p: typeof fp) => (p.shape.kind === 'strip' ? p.shape.pitch : 1000 / 60);
     const nF = Math.floor((0.9 * W) / pitchOf(fp));
     const nB = Math.floor((0.9 * W) / pitchOf(bp));
@@ -194,11 +202,11 @@ export const scrim: FixtureDef = {
 
     /* ---------- Lid: the grid, with the electrics and the FOH teaser ---------- */
     const sk = 4; // skirt over the walls
-    const lo = W / 2 + t + 0.2;
+    const lo = W / 2 + t + side; // skirt clears the walls
     const lidCuts: Manifold[] = [];
     const runB = nB * pitchOf(bp);
     elec.forEach((y, k) => {
-      lidCuts.push(g.place(socketCutter(g, bp, { tol: 0.25, length: runB + 6 }), mul(T(0, y, Hs), Rx(180))));
+      lidCuts.push(g.place(socketCutter(g, bp, { tol: seat, length: runB + 6 }), mul(T(0, y, Hs), Rx(180))));
       const end = (k % 2 === 0 ? 1 : -1) * (runB / 2 + 1.5);
       for (const s of [-1, 1]) lidCuts.push(g.cylZ(2, Hs - 1, Hs + lt + 1, s * end, y)); // leads up to the jumpers
     });
@@ -206,14 +214,15 @@ export const scrim: FixtureDef = {
     const wy = 2.4 + wedge / 2;
     const wz = Hs - wedge / 2;
     const Mf = mul(T(0, wy, wz), Rx(-135)); // FOH face frame: emit back and down at 45°
-    lidCuts.push(g.place(socketCutter(g, fp, { tol: 0.25, length: runF + 6 }), Mf));
+    lidCuts.push(g.place(socketCutter(g, fp, { tol: seat, length: runF + 6 }), Mf));
     lidCuts.push(g.cylZ(2, wz - 3, Hs + lt + 1, -(runF / 2 + 1.5), wy - 1.5));
-    const lidPlate = g.box([-lo - 1.8, -0.01, Hs - sk], [lo + 1.8, yc + t + 2, Hs + lt]).subtract(g.box([-lo, -1, Hs - sk - 1], [lo, yc + t + 0.2, Hs]));
+    const lidPlate = g.box([-lo - 1.8, -0.01, Hs - sk], [lo + 1.8, yc + t + side + 1.8, Hs + lt]).subtract(g.box([-lo, -1, Hs - sk - 1], [lo, yc + t + side, Hs]));
     const lidAsm = g.cut(
       g.union([
         lidPlate,
-        g.box([-W / 2, 0, Hs - wedge - 4], [W / 2, 2.4, Hs + 0.01]), // teaser
-        g.place(g.extrude(g.poly([[2.4, Hs + 0.01], [2.4, Hs - wedge], [2.4 + wedge, Hs + 0.01]]), -W / 2, W / 2), mul(Rz(90), Rx(90))),
+        // Teaser and FOH wedge drop in between the side walls, half a gap off each.
+        g.box([-W / 2 + side, 0, Hs - wedge - 4], [W / 2 - side, 2.4, Hs + 0.01]), // teaser
+        g.place(g.extrude(g.poly([[2.4, Hs + 0.01], [2.4, Hs - wedge], [2.4 + wedge, Hs + 0.01]]), -W / 2 + side, W / 2 - side), mul(Rz(90), Rx(90))),
       ]),
       lidCuts,
     );
@@ -291,6 +300,13 @@ export const scrim: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Lay the strips', parts: ['lid'], hardware: `${fp.name} ×${nF} px, ${bp.name} 3 × ${nB} px`, note: 'FOH run under the teaser, three electrics in the grid channels. Leads up through the lid holes.' },
+        { title: 'Jumper the runs', parts: ['lid'], hardware: 'Hook-up wire, 3-core', note: 'On top of the lid: FOH, then electrics near to far, snaking.' },
+        { title: 'Stand the layers', parts: ['layer-3', 'layer-2', 'layer-1'], note: 'Far, mid, near: each slides down its groove to the floor.' },
+        { title: 'Hang the scrim', parts: ['scrim'], note: 'Front groove, mesh face toward the house.' },
+        { title: 'Lid on', parts: ['lid', 'shell'], hardware: 'WLED controller', note: 'Skirt over the walls. Cable out the back wall.' },
+      ],
       schedule,
       hardware: [
         { item: 'WLED controller (ESP32)', qty: 1, note: 'On the lid or behind the box; cable through the back wall' },

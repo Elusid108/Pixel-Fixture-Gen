@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { Geo } from '../../geom/geo';
 import { apply, applyDir, mul, Rx, T } from '../../geom/mat';
 import { getPixel } from '../../pixels/library';
@@ -54,6 +55,9 @@ const GRIDS = {
  *
  * Panel-local frame: picture in XY, viewer on +Z, z=0 the back of the tray. Assembled, the
  * panel stands on its bottom edge facing -Y.
+ *
+ * Fit: baffle and lithophane drop into the tray with the fit gap, the bezel skirt clears the
+ * tray by half a gap a side. Strip and nodes take the seat clearance.
  */
 export const litho: FixtureDef = {
   id: 'litho-relight',
@@ -81,7 +85,7 @@ export const litho: FixtureDef = {
     { key: 'thick', label: 'Darkest thickness', type: 'number', default: 3.2, min: 2.4, max: 4, step: 0.1, unit: 'mm', group: 'Lithophane' },
     { key: 'detail', label: 'Mesh step', type: 'number', default: 0.8, min: 0.5, max: 1.5, step: 0.1, unit: 'mm', group: 'Lithophane', help: 'Finer is sharper but slower. The picture itself is stored at up to 256 px.' },
     { key: 'baffle', label: 'Baffle depth', type: 'number', default: 25, min: 15, max: 40, step: 1, unit: 'mm', group: 'Box', help: 'Deeper cells blend more evenly; shallower cells read as sharper squares.' },
-    { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.1, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -95,7 +99,9 @@ export const litho: FixtureDef = {
     const thick = Math.max(num(params, 'thick'), thin + 0.8);
     const hb = num(params, 'baffle');
     const step = num(params, 'detail');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const fit = fitOf(params);
+    const side = sideOf(params);
     const warnings: string[] = [];
 
     const userImg = decodeImage(str(params, 'image'));
@@ -105,11 +111,11 @@ export const litho: FixtureDef = {
     const bw = 1.2; // baffle wall
     const wall = 3;
     const tf = isStrip ? pixel.shape.depth + 1.5 : 2.5;
-    const inner = G + bw + 0.6;
+    const inner = G + bw + fit; // tray well: the baffle plus the fit gap
     const outer = inner + 2 * wall;
     const zBaffle = tf;
     const zFront = tf + hb + thick;
-    const Ls = inner - 0.4; // lithophane edge
+    const Ls = inner - fit; // lithophane edge
     const win = G - 2; // bezel window = picture area
 
     /* ---------- Lithophane (print: show face on the bed, relief up) ---------- */
@@ -133,7 +139,7 @@ export const litho: FixtureDef = {
     const trayCuts: Manifold[] = [g.box([-inner / 2, -inner / 2, tf], [inner / 2, inner / 2, zFront + 1])];
     if (isStrip) {
       for (let r = 0; r < n; r++) {
-        trayCuts.push(g.place(socketCutter(g, pixel, { tol: 0.25, length: G + 6 }), T(0, cx(r), tf)));
+        trayCuts.push(g.place(socketCutter(g, pixel, { tol, length: G + 6 }), T(0, cx(r), tf)));
       }
       // Jumper channels at alternate row ends (serpentine), under the baffle's outer wall.
       for (let r = 0; r < n - 1; r++) {
@@ -160,10 +166,10 @@ export const litho: FixtureDef = {
     /* ---------- Bezel (print: face down, skirt up) ---------- */
     const bt = 2.4;
     const skirt = 8;
-    const bo = outer + 2 * (0.2 + 2);
+    const bo = outer + 2 * (side + 2);
     const bezelCuts: Manifold[] = [
       g.box([-win / 2, -win / 2, -1], [win / 2, win / 2, bt + 1]),
-      g.box([-outer / 2 - 0.2, -outer / 2 - 0.2, bt], [outer / 2 + 0.2, outer / 2 + 0.2, bt + skirt + 1]),
+      g.box([-outer / 2 - side, -outer / 2 - side, bt], [outer / 2 + side, outer / 2 + side, bt + skirt + 1]),
     ];
     const zs = bt + (zFront - screwZ);
     for (const s of [-1, 1]) {
@@ -232,6 +238,16 @@ export const litho: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        isStrip
+          ? { title: 'Lay the strip', parts: ['tray'], hardware: `${n} × ${n} px ${pixel.name}, hook-up wire`, note: 'One row per channel from bottom-left, serpentine. Jumper the row ends through the floor channels.' }
+          : { title: 'Push the nodes', parts: ['tray'], hardware: `${n * n} × ${pixel.name}`, note: 'From behind, one per cell, serpentine from bottom-left.' },
+        { title: 'Baffle', parts: ['baffle'], note: 'Into the tray, onto the floor.' },
+        { title: 'Lithophane', parts: ['lithophane'], note: 'Relief down onto the baffle, smooth face out.' },
+        { title: 'Bezel', parts: ['bezel'], hardware: '8 × M3×8 self-tapping screw', note: 'Skirt over the tray, screws through the skirt.' },
+        ...(isStrip ? [] : [{ title: 'Back box', parts: ['back'], hardware: 'CA glue or 4 screws', note: 'Over the node bodies, onto the tray back.' }]),
+        { title: 'Hang it', hardware: '2 screws, 4 mm shank', note: 'On the keyholes. Cable enters bottom-left.' },
+      ],
       schedule: [
         {
           unit: 'S5-A',

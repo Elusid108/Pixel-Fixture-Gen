@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, mul, Rz, T } from '../../geom/mat';
 import { splitParts, splitToBed } from '../../geom/split';
@@ -21,6 +22,10 @@ import { fmt, SPLIT_PARAMS, splitCfg } from './common';
  * - Each arm ends in a candle cup (bobeche + sleeve). A three-pixel wick spine stands in the
  *   sleeve and up into a vase-mode flame. Pendalogue drops hang from the bobeche rims.
  * - RGBW by default: candle flicker needs a real warm white, and RGB-mixed amber reads as fake.
+ *
+ * Fit: the dovetail slots are the tenon grown by half the fit gap square to every flank; cup
+ * sockets, flame spigots, the uplight diffuser and split keys take the fit gap too. Pixels take
+ * the seat clearance; the lamp pipe and nuts are hardware.
  */
 
 export type ColumnStyle = 'baluster' | 'urn' | 'bobeche';
@@ -179,8 +184,8 @@ export const gasolier: FixtureDef = {
     { key: 'pixel', label: 'Flame pixel', type: 'pixel', default: 'pcb-9-sk6812-rgbw', pixels: ['pcb-9-sk6812-rgbw', 'pcb-9-ws2812b'], group: 'Pixels' },
     { key: 'uplight', label: 'Uplight ring (16 px)', type: 'boolean', default: true, group: 'Pixels' },
     { key: 'downlight', label: 'Finial jewel (7 px)', type: 'boolean', default: true, group: 'Pixels' },
-    { key: 'tol', label: 'Fit clearance', type: 'number', default: 0.15, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
     ...SPLIT_PARAMS,
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -190,7 +195,8 @@ export const gasolier: FixtureDef = {
     const Hc = num(params, 'height');
     const L = num(params, 'span');
     const nDrops = num(params, 'drops');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const side = sideOf(params);
     const pixel = getPixel(str(params, 'pixel'));
     const rgbw = pixel.chPerPx === 4;
     const jewel = getPixel(rgbw ? 'jewel-7-sk6812-rgbw' : 'jewel-7-ws2812b');
@@ -236,18 +242,22 @@ export const gasolier: FixtureDef = {
         [PIPE_R + 3, hh - 8],
       ]),
     );
+    // Dovetail slot: the arm's tenon section (neck at rh + 0.5, tail at rh - dT) grown by half the
+    // fit gap square to every face, open at the top so the arm drops in.
+    const slot = g.extrude(
+      g
+        .poly([
+          [rh + 0.5, -ta / 2],
+          [rh + 0.5, ta / 2],
+          [rh - dT, tb / 2],
+          [rh - dT, -tb / 2],
+        ])
+        .offset(side, 'Miter'),
+      slotFloor,
+      hh + 1,
+    );
     for (let k = 0; k < N; k++) {
       const a = (k * 360) / N;
-      const slot = g.M.hull(
-        [slotFloor, hh + 1].flatMap((z) => [
-          [rh + 1, -(ta / 2 + tol) - 0.2, z] as Vec3,
-          [rh + 1, ta / 2 + tol + 0.2, z] as Vec3,
-          [rh, -(ta / 2 + tol), z] as Vec3,
-          [rh, ta / 2 + tol, z] as Vec3,
-          [rh - dT - tol, -(tb / 2 + tol), z] as Vec3,
-          [rh - dT - tol, tb / 2 + tol, z] as Vec3,
-        ]),
-      );
       hubCuts.push(g.place(slot, Rz(a)));
       // Wire hole from the slot back into the gallery.
       hubCuts.push(g.place(g.cylX(3, rh - dT - 6, rh - dT + 0.5, 0, slotFloor + aw / 2), Rz(a)));
@@ -259,7 +269,7 @@ export const gasolier: FixtureDef = {
     const hub = g.cut(hubBody, hubCuts);
     parts.push({ id: 'hub', name: 'Hub', role: 'body', solid: hub, instances: [T(0, 0, zHub)], note: `${N} dovetail slots. Drill a Ø6 hole in the lamp pipe inside the gallery for the wires.` });
     if (up) {
-      const ring = g.tubeZ(rUp + 6.8, rUp - 6.8, 0, 1.6);
+      const ring = g.tubeZ(rUp + 7 - side, rUp - 7 + side, 0, 1.6); // the recess less the fit gap
       parts.push({ id: 'up-diffuser', name: 'Uplight diffuser ring', role: 'diffuser', solid: ring, instances: [T(0, 0, zHub + hh - 1.6)], explode: [0, 0, 1], note: 'Natural PETG, glued into the hub recess over the 16 pixels.' });
     }
 
@@ -334,7 +344,9 @@ export const gasolier: FixtureDef = {
 
     /* ---------- Candle cup: arm socket, bobeche, sleeve ---------- */
     const sleeveH = 64;
-    const sockD = 12;
+    const sockD = 12; // the arm end reaches this far into the cup
+    const flameR = 9.2; // flame spigot
+    const boreR = flameR + side; // sleeve bore
     const cupTop = 20 + sleeveH;
     const cup = g.cut(
       g.revolve([
@@ -346,19 +358,20 @@ export const gasolier: FixtureDef = {
         [14, 20],
         [11, 20],
         [11, cupTop],
-        [9.4, cupTop],
-        [9.4, 16],
+        [boreR, cupTop],
+        [boreR, 16],
         [3, 16],
       ]),
       [
-        g.box([-aw / 2 - tol, -th / 2 - tol, -1], [aw / 2 + tol, th / 2 + tol, sockD]),
+        // Socket over the arm end: the arm section plus the fit gap, half a gap deeper than the arm reaches.
+        g.box([-aw / 2 - side, -th / 2 - side, -1], [aw / 2 + side, th / 2 + side, sockD + side]),
         ...Array.from({ length: nDrops }, (_, j) => g.place(g.cylZ(1.1, 15, 30, 26.5, 0), Rz((j - (nDrops - 1) / 2) * 50))),
       ],
     );
     const cupFrame = (k: number) => apply(armFrame(k), [end[0], end[1], th / 2]);
     const cupInst = Array.from({ length: N }, (_, k) => {
       const p = cupFrame(k);
-      return mul(T(p[0], p[1], p[2] - sockD), Rz((k * 360) / N));
+      return mul(T(p[0], p[1], p[2] - sockD - side), Rz((k * 360) / N)); // resting on the arm end
     });
     parts.push({ id: 'cup', name: 'Candle cup', role: 'body', solid: cup, instances: cupInst, note: 'Upright. Slides over the arm end; the wire comes up the bore into the sleeve.' });
 
@@ -379,8 +392,8 @@ export const gasolier: FixtureDef = {
 
     const flame = g.revolve([
       [8.4, 0],
-      [9.2, 0],
-      [9.2, 5],
+      [flameR, 0],
+      [flameR, 5],
       [12.2, 12],
       [12.2, 17],
       [9.5, 28],
@@ -459,6 +472,21 @@ export const gasolier: FixtureDef = {
     if (!rgbw) warnings.push('RGB-only flames: candle flicker mixed from red and green reads as fake. SK6812 RGBW gives a real warm white.');
     if (up && rgbw) warnings.push('The whole chandelier is one SK6812 RGBW line. Don’t mix RGB and RGBW pixels on one output: the byte count per pixel differs.');
     warnings.push(`About ${fmt(Hf + hh + Hc)} mm tall without the canopy chain, ${fmt(2 * (rh + L + 30))} mm across the cups.`);
-    return { parts, pixels, schedule, hardware, warnings };
+    const ids = (pre: string) => parts.filter((p) => p.id === pre || p.id.startsWith(`${pre}-p`)).map((p) => p.id);
+    const colIds = ids('column');
+    const armIds = ids('arm');
+    const assembly = [
+      { title: 'Finial', parts: ['finial'], hardware: down ? `1/8 IPS hex nut, ${jewel.name}` : '1/8 IPS hex nut', note: down ? 'Jewel onto the tip skin, LEDs down. Nut into the trap.' : 'Nut into the trap.' },
+      ...(up ? [{ title: 'Uplight', parts: ['hub', 'up-diffuser'], hardware: `16 × ${pixel.name}, CA glue`, note: 'PCBs into the hub top, then glue the diffuser ring into the recess.' }] : []),
+      ...(colIds[0] !== 'column' ? [{ title: 'Join the column', parts: colIds, hardware: split.opts.pins ? '1.75 mm filament pins, CA glue' : 'CA glue', note: 'Stack the pieces on their rim spigots.' }] : []),
+      { title: 'Thread the spine', parts: ['finial', 'hub', ...colIds], hardware: `1/8 IPS lamp pipe ${pipeLen}″, hex nut, screw-collar loop`, note: 'Pipe through hub and column. Turn the finial on underneath, lock the top with the nut and loop.' },
+      { title: 'Candles', parts: ['wick', 'cup'], hardware: `${3 * N} × ${pixel.name}`, note: 'Three PCBs on each spine, one per face. Spine into the sleeve, wire down the bore.' },
+      ...(armIds[0] !== 'arm' ? [{ title: 'Join the arms', parts: armIds, hardware: 'CA glue', note: 'Each arm’s pieces on their keys.' }] : []),
+      { title: 'Arms', parts: [...armIds, 'cup'], hardware: '30 AWG 3-core wire', note: 'Wire up each channel. Cup over the arm end, then the dovetail drops into its hub slot.' },
+      { title: 'Flames', parts: ['flame'], note: 'Spigot into the sleeve.' },
+      ...(nDrops > 0 ? [{ title: 'Drops', parts: ['drop'], hardware: `${N * nDrops} × 6 mm jump ring`, note: 'Through the bobeche holes.' }] : []),
+      { title: 'Hang it', hardware: 'Canopy, ESP32 controller', note: 'Loop to the canopy chain; controller in the canopy.' },
+    ];
+    return { parts, pixels, schedule, hardware, warnings, assembly };
   },
 };

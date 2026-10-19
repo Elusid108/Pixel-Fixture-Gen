@@ -1,3 +1,4 @@
+import { FIT_PARAMS, seatOf, sideOf } from '../fit';
 import { Geo } from '../geom/geo';
 import { apply, applyDir, mul, Rx, Rz, T } from '../geom/mat';
 import { getPixel } from '../pixels/library';
@@ -40,7 +41,7 @@ export const swatchbook: FixtureDef = {
     },
     { key: 'numbers', label: 'Engrave leaf numbers', type: 'boolean', default: true, group: 'Shape' },
     { key: 'fan', label: 'Fan angle (view)', type: 'number', default: 150, min: 0, max: 200, step: 5, unit: '°', group: 'View' },
-    { key: 'tol', label: 'Socket clearance', type: 'number', default: 0.15, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -49,12 +50,13 @@ export const swatchbook: FixtureDef = {
     const L = num(params, 'length');
     const W = num(params, 'width');
     const t = num(params, 'plate');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const side = sideOf(params);
     const fan = num(params, 'fan');
     const pcbR = (pixel.shape.kind === 'round' ? pixel.shape.d : 9.5) / 2;
 
     const postR = 6;
-    const holeR = postR + 0.25;
+    const holeR = postR + side; // leaves turn on the post
     const hubR = postR + 5;
     const airGap = 1.0;
     const cupH = airGap + pixel.shape.depth + 0.2;
@@ -98,12 +100,14 @@ export const swatchbook: FixtureDef = {
       g.cylZ(3.5, cav.h - 1, postTop + 1), // wire bore
       g.box([0, -1.5, baseH + 2], [postR + 1, 1.5, postTop - 9]), // wire slot
     ]);
-    const lid = g.extrude(g.roundRect(cav.x1 - cav.x0 + 3.6, cav.y * 2 + 3.6, 1.5), 0, 1.6);
+    // Lid: the recess less the fit gap each way, flush with the underside.
+    const lid = g.extrude(g.roundRect(cav.x1 - cav.x0 + 4 - 2 * side, cav.y * 2 + 4 - 2 * side, 1.5), 0, 1.6);
 
     /* Cap: slides over the post top and clamps the stack; M3 set screw into a heat-set insert. */
     const capR = 11;
+    const postIn = postTop - (baseH + n * pitch); // how far the post reaches into the cap
     let cap = g.coneZ(capR, capR - 1.5, 0, 12);
-    cap = g.cut(cap, [g.cylZ(postR + 0.15, -1, 8), g.cylX(2.0, 0, capR + 1, 0, 4.5)]);
+    cap = g.cut(cap, [g.cylZ(postR + side, -1, postIn + side), g.cylX(2.0, 0, capR + 1, 0, 4.5)]);
 
     const parts: PartSpec<Manifold>[] = [
       { id: 'base', name: 'Base + post', role: 'body', solid: base, instances: [T(0, 0, 0)], explode: [0, 0, -1] },
@@ -138,9 +142,17 @@ export const swatchbook: FixtureDef = {
       );
     }
 
+    const leafIds = shared ? ['leaf'] : Array.from({ length: n }, (_, k) => `leaf-${k + 1}`);
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Fit the controller', parts: ['base'], hardware: 'ESP32-C3 SuperMini', note: 'Into the bay, USB-C to the side port. Lead up the post bore.' },
+        { title: 'Close the base', parts: ['lid', 'base'], hardware: 'CA glue, 3 rubber feet', note: 'Lid into the recess, flush. Feet on.' },
+        { title: 'Seat the pixels', parts: leafIds, hardware: `${n} × ${pixel.name}`, note: 'One PCB per leaf cup, LED down onto the ledge.' },
+        { title: 'Stack the leaves', parts: leafIds, hardware: '28 AWG ribbon', note: `Leaf 01 first, onto the post. Wire leaf to leaf down the post slot.` },
+        { title: 'Cap the post', parts: ['cap'], hardware: 'M3 heat-set insert, M3×6 set screw', note: 'Insert in the cap side. Cap over the post top, snug on the stack, then lock.' },
+      ],
       schedule: [
         {
           unit: 'S1-A',

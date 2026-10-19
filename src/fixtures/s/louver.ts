@@ -1,4 +1,5 @@
 import type { Manifold } from 'manifold-3d';
+import { FIT_PARAMS, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, applyDir, mul, Rx, Ry, Rz, T } from '../../geom/mat';
 import { getPixel } from '../../pixels/library';
@@ -13,6 +14,9 @@ import { layFlat, num, str } from '../util';
  * to face -Y. A vertical run of strip on the back plate puts one pixel behind every gap in a
  * stack of down-angled blades, so each gap is its own cell. The housing's top and bottom caps
  * carry short runs facing up and down for independent wall wash.
+ *
+ * Fit: the cassette cheeks sit in back-plate grooves with the fit gap, and the wash lenses in
+ * their rebates. The strip takes the seat clearance.
  */
 export const louver: FixtureDef = {
   id: 'louver-sconce',
@@ -29,7 +33,7 @@ export const louver: FixtureDef = {
     { key: 'angle', label: 'Louver angle', type: 'number', default: 30, min: 15, max: 45, step: 5, unit: '°', group: 'Shape', help: 'Steeper hides the pixels from below and throws the glow down.' },
     { key: 'width', label: 'Width', type: 'number', default: 90, min: 70, max: 120, step: 5, unit: 'mm', group: 'Shape' },
     { key: 'depth', label: 'Louver depth', type: 'number', default: 40, min: 30, max: 55, step: 1, unit: 'mm', group: 'Shape' },
-    { key: 'tol', label: 'Strip clearance', type: 'number', default: 0.25, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
@@ -40,7 +44,8 @@ export const louver: FixtureDef = {
     const th = (num(params, 'angle') * Math.PI) / 180;
     const W = num(params, 'width');
     const D = num(params, 'depth');
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const side = sideOf(params);
     const warnings: string[] = [];
 
     const bt = 4; // back plate
@@ -51,7 +56,10 @@ export const louver: FixtureDef = {
     const Dc = 18; // cap depth
     const yb = bt + 0.6; // blade inner edge
     const drop = D * Math.tan(th);
-    const zb0 = hc + 1 + tv + (bt + Dc - yb) * Math.tan(th);
+    // The cheeks' lower edge runs from the groove at the plate to the bottom blade's front edge.
+    const cheekSlope = drop / (yb + D - (bt - 1.5));
+    // Lowest blade and the cheeks both clear the bottom cap by 1 mm.
+    const zb0 = hc + 1 + tv + Math.max((bt + Dc - yb) * Math.tan(th), (Dc + 1.5) * cheekSlope);
     const zb = (j: number) => zb0 + j * p;
     const H = zb(n) + 1 + hc;
     const xo = W / 2 + cheek;
@@ -72,6 +80,8 @@ export const louver: FixtureDef = {
       [yb + D, zb(n) - drop],
       [bt - 1.5, zb(n)],
     ];
+    // The cheek's lower edge falls toward the front, so it is lowest where it leaves the groove.
+    const cheekLow = zb(0) - tv - 1.5 * cheekSlope;
     const cassetteAsm = g.union([
       ...Array.from({ length: n + 1 }, (_, j) => yz(blade(j), -W / 2 - 0.01, W / 2 + 0.01)),
       yz(cheekPts, W / 2, xo),
@@ -83,13 +93,14 @@ export const louver: FixtureDef = {
     const toYZ = mul(Ry(-90), Rx(-90)); // socket frame (run X, emit +Z) → run Z, emit +Y
     const washLen = nw * p;
     const lensW = pixel.shape.kind === 'strip' ? pixel.shape.width + 4 : 14;
+    const lensL = washLen + 7.6;
     const yw = bt + Dc / 2;
     const housingCuts: Manifold[] = [
       // Cell run up the middle of the plate, wire grooves on to each cap.
       g.place(socketCutter(g, pixel, { tol, length: n * p + 4 }), mul(T(0, bt, (zb(0) + zb(n)) / 2), toYZ)),
       g.box([-2, bt - 2, hc - 1], [2, bt + 0.1, H - hc + 1]),
-      // Cheek grooves.
-      ...[-1, 1].map((s) => g.box([s > 0 ? W / 2 - 0.15 : -xo - 0.15, bt - 1.5, zb(0) - tv - 0.5], [s > 0 ? xo + 0.15 : -W / 2 + 0.15, bt + 0.1, zb(n) + 0.5])),
+      // Cheek grooves: the cheek plus the fit gap across and along, half a gap past its edge.
+      ...[-1, 1].map((s) => g.box([s > 0 ? W / 2 - side : -xo - side, bt - 1.5 - side, cheekLow - side], [s > 0 ? xo + side : -W / 2 + side, bt + 0.1, zb(n) + side])),
       // Cable entry from the wall box, just under the stack.
       g.cylY(3.5, -1, bt + 1, 0, zb(0) - 6),
       // Keyholes: head in, slide down.
@@ -102,7 +113,7 @@ export const louver: FixtureDef = {
       ] as const) {
         const face = mul(T(0, yw, z), up > 0 ? Rx(0) : Rx(180));
         housingCuts.push(g.place(socketCutter(g, pixel, { tol, length: washLen + 6 }), face));
-        housingCuts.push(g.place(g.box([-washLen / 2 - 4, -lensW / 2 - 0.2, -1.2], [washLen / 2 + 4, lensW / 2 + 0.2, 1]), face)); // lens rebate
+        housingCuts.push(g.place(g.box([-lensL / 2 - side, -lensW / 2 - side, -1.2], [lensL / 2 + side, lensW / 2 + side, 1]), face)); // lens rebate
         for (const s of [-1, 1]) housingCuts.push(g.place(g.cylZ(2, -hc - 1, -1), mul(face, T(s * (washLen / 2 + 1.5), 0, 0)))); // leads through the cap
       }
     }
@@ -131,7 +142,7 @@ export const louver: FixtureDef = {
       },
     ];
     if (nw > 0) {
-      const lens = g.extrude(g.roundRect(washLen + 7.6, lensW, 1), 0, 1.2);
+      const lens = g.extrude(g.roundRect(lensL, lensW, 1), 0, 1.2);
       parts.push({
         id: 'wash-lens',
         name: 'Wash lens',
@@ -139,7 +150,7 @@ export const louver: FixtureDef = {
         solid: lens,
         instances: [mul(M, T(0, yw, H - 1.2)), mul(M, T(0, yw, 1.2), Rx(180))],
         explode: [0, 0, 1],
-        note: 'One over each wash run. Press into the rebate.',
+        note: 'One over each wash run. Drops into the rebate with the fit gap; a dot of CA holds it.',
       });
     }
 
@@ -162,6 +173,12 @@ export const louver: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Lay the strip', parts: ['housing'], hardware: `${pixel.name}: ${n} px${nw > 0 ? ` + 2 × ${nw} px` : ''}`, note: `Cell run up the plate channel${nw > 0 ? ', wash runs in the caps. Jumper them through the lead holes' : ''}. Data in at the bottom.` },
+        ...(nw > 0 ? [{ title: 'Wash lenses', parts: ['wash-lens'], hardware: 'CA glue', note: 'One into each cap rebate, over the run.' }] : []),
+        { title: 'Fit the cassette', parts: ['cassette', 'housing'], hardware: 'CA glue', note: 'Cheeks into the back-plate grooves, blades sloping down and out.' },
+        { title: 'Hang it', hardware: '2 screws + plugs, 4 mm shank', note: 'Cable from the wall box through the entry under the stack. Keyholes: head in, slide down.' },
+      ],
       schedule,
       hardware: [
         { item: 'WLED controller (ESP32)', qty: 1, note: 'In the wall box or remote; cable enters behind the stack' },

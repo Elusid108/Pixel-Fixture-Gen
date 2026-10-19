@@ -1,4 +1,5 @@
 import type { CrossSection, Manifold } from 'manifold-3d';
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { Geo, type P2 } from '../../geom/geo';
 import { apply, applyDir, mul, Rx, Rz, T } from '../../geom/mat';
 import { getPixel, pcbLedOffsets } from '../../pixels/library';
@@ -95,6 +96,9 @@ export function goboHoles(g: Geo, kind: Gobo, seed: number, img: GrayImage | nul
  * reflector housing, gate (frost, four shutter planes, template slot), lens barrel.
  * The jewel backlights a frost disc behind the gobo, so the gobo glows in the gate the way a
  * real one looks from the front of house. Nothing focuses: there is no lens to project it.
+ *
+ * Fit: the cap sleeve, carrier, gate spigot, frost seat, shutter planes, template slot, barrel
+ * spigot and yoke cheeks take the fit gap; the jewel and cap PCBs take the seat clearance.
  */
 export const leko: FixtureDef = {
   id: 'leko-jr',
@@ -140,13 +144,15 @@ export const leko: FixtureDef = {
     { key: 'throw', label: 'Lamp to gate', type: 'number', default: 30, min: 20, max: 45, step: 1, unit: 'mm', group: 'Body', help: 'Jewel to frost. Longer is more even, shorter is brighter.' },
     { key: 'cut', label: 'Shutter cut (view)', type: 'number', default: 30, min: 0, max: 60, step: 5, unit: '%', group: 'View' },
     { key: 'tilt', label: 'Tilt (view)', type: 'number', default: 15, min: -20, max: 40, step: 5, unit: '°', group: 'View' },
-    { key: 'tol', label: 'Socket clearance', type: 'number', default: 0.15, min: 0, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit' },
+    ...FIT_PARAMS,
   ],
   build(ctx, params) {
     const g = new Geo(ctx);
     const jewel = getPixel(str(params, 'jewel'));
     const pcb = getPixel(str(params, 'capPixel'));
-    const tol = num(params, 'tol');
+    const tol = seatOf(params);
+    const fit = fitOf(params);
+    const side = sideOf(params);
     const throwMm = num(params, 'throw');
     const seed = num(params, 'seed');
     const selected = str(params, 'gobo') as Gobo;
@@ -189,17 +195,20 @@ export const leko: FixtureDef = {
 
     /* ---------- Lamp cap (translucent) ---------- */
     const Lc = 20;
-    const capR = Rr + 2;
+    const capR = Rr + 2 + side;
+    // The sleeve slides over the housing with the fit gap. The ledge under the housing and the
+    // carrier rim is chamfered at 45° so the cap prints rear face down.
+    const rLedge = bore - side - 1;
     const capProf: P2[] = [
       [3.5, -Lc],
       [capR - 2, -Lc],
       [capR, -Lc + 2],
       [capR, sleeve],
-      [Rr + 0.2, sleeve],
-      [Rr + 0.2, 0],
-      [bore - 0.4, 0],
-      [Rr + 0.2, -3],
-      [Rr + 0.2, -Lc + 1.6],
+      [Rr + side, sleeve],
+      [Rr + side, 0],
+      [rLedge, 0],
+      [Rr + side, -(Rr + side - rLedge)],
+      [Rr + side, -Lc + 1.6],
       [3.5, -Lc + 1.6],
     ];
     const fins = Array.from({ length: 8 }, (_, k) => g.place(g.box([capR - 0.5, -0.6, -Lc + 2.5], [capR + 2.5, 0.6, sleeve - 1]), Rz(22.5 + k * 45)));
@@ -219,7 +228,8 @@ export const leko: FixtureDef = {
         return g.place(socketCutter(g, pcb, { tol, over: 1, wire: 6 }), mul(T(r8 * Math.cos(a), r8 * Math.sin(a), 0), Rx(180)));
       }),
     ];
-    const carrier = g.cut(g.union([g.cylZ(bore - 0.2, 0, 4), g.cylZ(postR, 3.9, zJ)]), carrierCuts);
+    // 96 facets, like the housing it sits in, so the fit gap holds all round.
+    const carrier = g.cut(g.union([g.cylZ(bore - side, 0, 4, 0, 0, 96), g.cylZ(postR, 3.9, zJ)]), carrierCuts);
 
     /* ---------- Gate: frost seat, four shutter planes, template slot ---------- */
     const Rg = 36;
@@ -228,54 +238,60 @@ export const leko: FixtureDef = {
     const shZ = (k: number) => Lh + 1.5 + k * 2.6;
     const zT = Lh + 12;
     const bw = 30; // shutter blade width
+    const bt = 1.2; // blade and gobo thickness
+    const frostR = 17;
+    const plateW = 34;
+    const plateBottom = -17;
     const dirs = [90, 270, 180, 0]; // top, bottom, stage left, stage right (outward)
+    // Shutter planes and the template slot are sliding fits: blade or plate plus the fit gap,
+    // in thickness and in width. The frost disc drops into its seat with the same gap.
     const gateCuts: Manifold[] = [
       g.cylZ(ap, Lh - 7, Lh + Lg + 6),
-      g.cylZ(17.2, Lh - 7, Lh - 6 + 1.4), // frost seat
-      ...dirs.map((a, k) => g.place(g.box([-ap - 2, -bw / 2 - 0.3, shZ(k)], [Rg + 2, bw / 2 + 0.3, shZ(k) + 1.6]), Rz(a))),
-      g.box([-17.3, -17.3, zT], [17.3, Rg + 2, zT + 1.8]),
+      g.cylZ(frostR + side, Lh - 7, Lh - 6 + 1.2 + side), // frost seat
+      ...dirs.map((a, k) => g.place(g.box([-ap - 2, -bw / 2 - side, shZ(k)], [Rg + 2, bw / 2 + side, shZ(k) + bt + fit]), Rz(a))),
+      g.box([-plateW / 2 - side, plateBottom - side, zT], [plateW / 2 + side, Rg + 2, zT + bt + fit]),
     ];
     const Rb = 31;
     // Revolved so the ring steps out from the rear spigot at 45°: prints rear face down, no supports.
     const gateBody = g.revolve(
       [
         [ap - 1, Lh - 6],
-        [front - 0.2, Lh - 6],
-        [front - 0.2, Lh],
+        [front - side, Lh - 6],
+        [front - side, Lh],
         [Rf, Lh],
         [Rg, Lh + Rg - Rf],
         [Rg, Lh + Lg],
-        [Rb - 2.7, Lh + Lg],
-        [Rb - 2.7, Lh + Lg + 5],
+        [Rb - 2.5 - side, Lh + Lg],
+        [Rb - 2.5 - side, Lh + Lg + 5],
         [ap - 1, Lh + Lg + 5],
       ],
       96,
     );
     const gate = g.cut(gateBody, gateCuts);
-    const frost = g.cylZ(17, 0, 1.2);
+    const frost = g.cylZ(frostR, 0, 1.2);
 
     /* ---------- Barrel ---------- */
     const Lb = { '19': 72, '26': 56, '36': 44, '50': 34 }[str(params, 'lens')] ?? 56;
     const z0b = Lh + Lg;
-    const barrelAsm = g.cut(g.cylZ(Rb, z0b, z0b + Lb), [g.cylZ(Rb - 2.5, z0b - 1, z0b + Lb - 2), g.cylZ(Rb - 5, z0b, z0b + Lb + 1)]);
+    // 96 facets, like the gate spigot it slides over.
+    const barrelAsm = g.cut(g.cylZ(Rb, z0b, z0b + Lb, 0, 0, 96), [g.cylZ(Rb - 2.5, z0b - 1, z0b + Lb - 2, 0, 0, 96), g.cylZ(Rb - 5, z0b, z0b + Lb + 1)]);
     const barrel = layFlat(g, barrelAsm, Rx(180));
 
     /* ---------- Shutter blade (print: flat, leading edge at x=0, grip at the far end) ---------- */
     const bl = Rg + 0.5 + ap;
-    const blade = g.union([g.extrude(g.roundRect(bl + 2, bw, 1.5, (bl + 2) / 2 - 1, 0), 0, 1.2).translate([1, 0, 0]), g.extrude(g.roundRect(6, bw - 6, 1.5, bl + 3, 0), 0, 5)]);
+    const blade = g.union([g.extrude(g.roundRect(bl + 2, bw, 1.5, (bl + 2) / 2 - 1, 0), 0, bt).translate([1, 0, 0]), g.extrude(g.roundRect(6, bw - 6, 1.5, bl + 3, 0), 0, 5)]);
 
     /* ---------- Gobo plates ---------- */
-    const plateW = 34;
     const plateTop = Rg + 20;
     const library: Gobo[] = bool(params, 'library') ? GOBOS.filter((k) => k !== 'custom' || userImg || selected === 'custom') : [selected];
     if (!library.includes(selected)) library.push(selected);
     let dropped = 0;
     const plate = (kind: Gobo): Manifold => {
-      const outline = g.roundRect(plateW, plateTop + 17, 2, 0, (plateTop - 17) / 2).subtract(g.circle(4, 0, plateTop - 7));
+      const outline = g.roundRect(plateW, plateTop - plateBottom, 2, 0, (plateTop + plateBottom) / 2).subtract(g.circle(4, 0, plateTop - 7));
       const pieces = outline.subtract(goboHoles(g, kind, seed, userImg)).decompose();
       pieces.sort((a, b) => b.area() - a.area());
       if (kind === 'custom') dropped += pieces.length - 1;
-      const body = g.extrude(pieces[0], 0, 1.2);
+      const body = g.extrude(pieces[0], 0, bt);
       const label = g.text(kind.toUpperCase(), 3.6, 0.6).translate([0, Rg + 4]);
       return g.cut(body, [g.extrude(label, 0.7, 2)]);
     };
@@ -283,7 +299,7 @@ export const leko: FixtureDef = {
     /* ---------- Yoke + stand (assembled frame, Z up, beam +Y) ---------- */
     const Hc = 30;
     const Hp = Hc + 6 + Rm + 14;
-    const xa = Rt + 4 + 0.5 + 3;
+    const xa = Rt + 4 + side + 3; // yoke cheeks clear the trunnion bosses by half a gap each
     const yokeAsm = g.cut(
       g.union([
         ...[-1, 1].flatMap((sx) => [g.box([sx * xa - 3, -9, Hc], [sx * xa + 3, 9, Hp]), g.cylX(9, sx * xa - 3, sx * xa + 3, 0, Hp)]),
@@ -317,13 +333,13 @@ export const leko: FixtureDef = {
         name: 'Shutter blade',
         role: 'body',
         solid: blade,
-        instances: dirs.map((a, k) => mul(Mcan, T(0, 0, shZ(k) + 0.2), Rz(a), T(cuts[k], 0, 0))),
+        instances: dirs.map((a, k) => mul(Mcan, T(0, 0, shZ(k) + side), Rz(a), T(cuts[k], 0, 0))),
         explode: ex(1.8),
         note: 'Black. Slides in its own plane; the grip is the stop.',
       },
     ];
 
-    const slotAt = mul(Mcan, T(0, 0, zT + 0.3));
+    const slotAt = mul(Mcan, T(0, 0, zT + side));
     library.forEach((kind, i) => {
       const parked = library.filter((k) => k !== selected).indexOf(kind);
       parts.push({
@@ -349,6 +365,16 @@ export const leko: FixtureDef = {
     return {
       parts,
       pixels,
+      assembly: [
+        { title: 'Base and yoke', parts: ['stand', 'yoke'], hardware: 'M5 heat-set insert, M5×16 thumb screw', note: 'Insert in the stand post. Yoke on top, pan lock in.' },
+        { title: 'Wire the carrier', parts: ['carrier'], hardware: `${jewel.name}, 8 × ${pcb.name}`, note: 'Jewel on the post, 8 PCBs on the back. Daisy-chain round the ring, data in at the jewel.' },
+        { title: 'Close the rear', parts: ['carrier', 'cap', 'housing'], hardware: '3 × M2×6 self-tapping screw', note: 'Carrier into the housing bore. Cap sleeve over the rear, screws through the sleeve.' },
+        { title: 'Frost and gate', parts: ['frost', 'gate'], hardware: '3 × M2×6 self-tapping screw', note: 'Frost disc into the seat behind the gate. Gate spigot into the housing front.' },
+        { title: 'Lens tube', parts: ['barrel'], note: 'Over the gate front spigot. Glue optional.' },
+        { title: 'Shutters', parts: ['shutter'], note: 'One blade per plane, grip out.' },
+        { title: 'Gobo', parts: [`gobo-${selected}`], note: 'Drop into the template slot, label up.' },
+        { title: 'Hang the housing', parts: ['housing', 'yoke'], hardware: '2 × M4 heat-set insert, 2 × M4×10 thumb screw', note: 'Inserts in the trunnions. Housing between the yoke arms, thumb screws in.' },
+      ],
       schedule: [
         { unit: 'S3-1', position: 'Lamp post, behind the gate', purpose: 'Gobo backlight', pixelId: jewel.id, units: 1, px: jewel.pxPerUnit, notes: `${throwMm} mm behind the frost. Data in here.` },
         { unit: 'S3-2', position: 'Carrier rear, into the lamp cap', purpose: 'Lamp-cap glow', pixelId: pcb.id, units: 8, px: 8, notes: 'Ring of 8 PCBs, LEDs facing back. Daisy-chain round the ring.' },
