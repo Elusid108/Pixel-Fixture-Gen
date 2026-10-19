@@ -4,7 +4,7 @@ import { getPixel, pixelSpec } from '../pixels/library';
 import type { ParamSpec, ParamValue } from '../types';
 import { useStore } from './store';
 
-function Field({ spec, value, onChange }: { spec: ParamSpec; value: ParamValue; onChange: (v: ParamValue) => void }) {
+export function Field({ spec, value, onChange }: { spec: ParamSpec; value: ParamValue; onChange: (v: ParamValue) => void }) {
   const id = `p-${spec.key}`;
   if (spec.type === 'boolean') {
     return (

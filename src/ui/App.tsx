@@ -9,27 +9,36 @@ import { Inspector } from './Inspector';
 import { PartsPanel, usePlates } from './PartsPanel';
 import { SchedulePanel } from './SchedulePanel';
 import { useStore, type Effect, type Tab } from './store';
+import { useSnBuildParams } from './useSnPlan';
 import { Viewer } from './Viewer';
+import { WorkbenchBench } from './WorkbenchBench';
+import { WorkbenchCatalog } from './WorkbenchCatalog';
+import { WorkbenchData } from './WorkbenchData';
+import { WorkbenchInspector } from './WorkbenchInspector';
+import { useWorkbenchKeys, WorkbenchToolbar } from './WorkbenchToolbar';
 
-/** Rebuild on any fixture/param change, debounced, latest request wins. */
+/** Rebuild on any fixture/param/design change, debounced, latest request wins. */
 function useAutoBuild() {
-  const fixtureId = useStore((s) => s.fixtureId);
-  const stored = useStore((s) => s.params[fixtureId]);
+  const mode = useStore((s) => s.mode);
+  const catalogId = useStore((s) => s.fixtureId);
+  const stored = useStore((s) => s.params[catalogId]);
+  const benchParams = useSnBuildParams();
   const setResult = useStore((s) => s.setResult);
   const setBuilding = useStore((s) => s.setBuilding);
   const latest = useRef(0);
+  const fixtureId = mode === 'workbench' ? 'strut-node' : catalogId;
   useEffect(() => {
     const ticket = ++latest.current;
-    const params = resolveParams(getFixture(fixtureId), stored);
+    const params = mode === 'workbench' ? benchParams : resolveParams(getFixture(fixtureId), stored);
     const timer = setTimeout(() => {
       setBuilding(true);
       requestBuild(fixtureId, params)
         .then((r) => ticket === latest.current && setResult(r))
         .catch((e: Error) => ticket === latest.current && setResult(null, e.message))
         .finally(() => ticket === latest.current && setBuilding(false));
-    }, 120);
+    }, mode === 'workbench' ? 250 : 120);
     return () => clearTimeout(timer);
-  }, [fixtureId, stored, setResult, setBuilding]);
+  }, [mode, fixtureId, stored, benchParams, setResult, setBuilding]);
 }
 
 function PrinterPrompt() {
@@ -108,14 +117,37 @@ function ViewBar() {
   );
 }
 
-const TABS: { id: Tab; label: string }[] = [
+const TABS: { id: Tab; label: string; bench?: boolean }[] = [
   { id: 'schedule', label: 'Instrument schedule' },
   { id: 'parts', label: 'Parts & plates' },
+  { id: 'data', label: 'Data & power', bench: true },
   { id: 'export', label: 'Export' },
 ];
 
+function ModeSwitch() {
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
+  return (
+    <div className="seg mode" role="tablist" aria-label="Mode">
+      <button role="tab" aria-selected={mode === 'catalog'} className={mode === 'catalog' ? 'on' : ''} onClick={() => setMode('catalog')}>
+        Catalogue
+      </button>
+      <button role="tab" aria-selected={mode === 'workbench'} className={mode === 'workbench' ? 'on' : ''} onClick={() => setMode('workbench')}>
+        Workbench
+      </button>
+    </div>
+  );
+}
+
+function BenchKeys() {
+  useWorkbenchKeys();
+  return null;
+}
+
 export function App() {
   useAutoBuild();
+  const mode = useStore((s) => s.mode);
+  const bench = mode === 'workbench';
   const printerId = useStore((s) => s.printerId);
   const setPrinter = useStore((s) => s.setPrinter);
   const result = useStore((s) => s.result);
@@ -136,6 +168,7 @@ export function App() {
           </span>
           Pixel Fixture <b>Gen</b>
         </div>
+        <ModeSwitch />
         <div className="top-right">
           <span className={`status ${building ? 'busy' : error ? 'err' : ''}`}>
             {building ? 'Building…' : error ? 'Build failed' : result ? `Built in ${result.ms.toFixed(0)} ms` : ''}
@@ -154,12 +187,12 @@ export function App() {
         </div>
       </header>
 
-      <Catalog />
+      {bench ? <WorkbenchCatalog /> : <Catalog />}
 
       <main className="stage">
-        <ViewBar />
+        {bench ? <WorkbenchToolbar /> : <ViewBar />}
         <div className="canvas-wrap">
-          <Viewer />
+          {bench ? <WorkbenchBench /> : <Viewer />}
           {(notes.length > 0 || error) && (
             <ul className="notes">
               {error && <li className="err">{error}</li>}
@@ -168,13 +201,14 @@ export function App() {
                   {e}
                 </li>
               ))}
-              {result?.warnings.map((w) => <li key={w}>{w}</li>)}
+              {result?.warnings.slice(0, 4).map((w) => <li key={w}>{w}</li>)}
+              {(result?.warnings.length ?? 0) > 4 && <li>…and {result!.warnings.length - 4} more like these.</li>}
             </ul>
           )}
         </div>
         <section className="drawer">
           <div className="tabs" role="tablist">
-            {TABS.map((t) => (
+            {TABS.filter((t) => bench || !t.bench).map((t) => (
               <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'on' : ''} onClick={() => set('tab', t.id)}>
                 {t.label}
               </button>
@@ -183,12 +217,14 @@ export function App() {
           <div className="drawer-body">
             {tab === 'schedule' && <SchedulePanel />}
             {tab === 'parts' && <PartsPanel />}
+            {tab === 'data' && bench && <WorkbenchData />}
             {tab === 'export' && <ExportPanel />}
           </div>
         </section>
       </main>
 
-      <Inspector />
+      {bench ? <WorkbenchInspector /> : <Inspector />}
+      {bench && <BenchKeys />}
       {!printerId && <PrinterPrompt />}
     </div>
   );

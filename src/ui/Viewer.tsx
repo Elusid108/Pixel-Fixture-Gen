@@ -20,6 +20,8 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { BuildResult } from '../build/runBuild';
 import { plateTransform } from '../export/plates';
 import { mul, T } from '../geom/mat';
+import type { Plate } from '../export/plates';
+import type { Printer } from '../printers';
 import type { BuiltPart, Mat4, MaterialRole } from '../types';
 import { makeEffect } from './effects';
 import { usePlates } from './PartsPanel';
@@ -27,7 +29,7 @@ import { useStore } from './store';
 
 const ROLE_COLOR: Record<MaterialRole, string> = { body: '#34343c', baffle: '#46465a', diffuser: '#f2eee4' };
 
-function useGeometries(parts: BuiltPart[]) {
+export function useGeometries(parts: BuiltPart[]) {
   const geos = useMemo(() => {
     const m = new Map<string, BufferGeometry>();
     for (const p of parts) {
@@ -43,7 +45,7 @@ function useGeometries(parts: BuiltPart[]) {
   return geos;
 }
 
-function useMaterials() {
+export function useMaterials() {
   return useMemo(() => {
     const body = new MeshStandardMaterial({ color: ROLE_COLOR.body, roughness: 0.62, metalness: 0.05, flatShading: true });
     const baffle = new MeshStandardMaterial({ color: ROLE_COLOR.baffle, roughness: 0.7, flatShading: true });
@@ -62,7 +64,7 @@ function useMaterials() {
   }, []);
 }
 
-function PartMesh({ geometry, material, matrix }: { geometry: BufferGeometry; material: MeshStandardMaterial; matrix: Mat4 }) {
+export function PartMesh({ geometry, material, matrix }: { geometry: BufferGeometry; material: MeshStandardMaterial; matrix: Mat4 }) {
   const ref = useRef<Mesh>(null);
   useLayoutEffect(() => {
     if (!ref.current) return;
@@ -73,7 +75,7 @@ function PartMesh({ geometry, material, matrix }: { geometry: BufferGeometry; ma
 }
 
 /** Assembled-frame bounds of every placed instance. */
-function assembledBounds(parts: BuiltPart[]): Box3 {
+export function assembledBounds(parts: BuiltPart[]): Box3 {
   const box = new Box3();
   const m = new Matrix4();
   for (const p of parts) {
@@ -83,7 +85,7 @@ function assembledBounds(parts: BuiltPart[]): Box3 {
   return box;
 }
 
-function Pixels({ result, size, diffuser }: { result: BuildResult; size: number; diffuser: MeshStandardMaterial }) {
+export function Pixels({ result, size, diffuser }: { result: BuildResult; size: number; diffuser: MeshStandardMaterial }) {
   const effect = useStore((s) => s.effect);
   const core = useRef<InstancedMesh>(null);
   const glow = useRef<InstancedMesh>(null);
@@ -143,7 +145,7 @@ function Pixels({ result, size, diffuser }: { result: BuildResult; size: number;
   );
 }
 
-function CameraRig({ center, radius, viewKey }: { center: Vector3; radius: number; viewKey: string }) {
+export function CameraRig({ center, radius, viewKey }: { center: Vector3; radius: number; viewKey: string }) {
   const { camera, controls } = useThree();
   useEffect(() => {
     const ctl = controls as unknown as OrbitControlsImpl | null;
@@ -165,6 +167,58 @@ function CameraRig({ center, radius, viewKey }: { center: Vector3; radius: numbe
   return null;
 }
 
+export type Materials = ReturnType<typeof useMaterials>;
+
+/** Background, lights and the bench grid, shared by the catalogue viewer and the workbench. */
+export function SceneBasics({ size }: { size: number }) {
+  return (
+    <>
+      <color attach="background" args={['#0b0b10']} />
+      <hemisphereLight args={['#d6defa', '#241c2c', 1.1]} />
+      <directionalLight position={[260, 420, -300]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
+      <directionalLight position={[-300, 200, 260]} intensity={0.9} color="#8fb4ff" />
+      <directionalLight position={[0, -200, -300]} intensity={0.35} color="#ffcf9a" />
+      <Grid
+        position={[0, -0.05, 0]}
+        args={[10, 10]}
+        cellSize={10}
+        sectionSize={100}
+        cellColor="#1d1d26"
+        sectionColor="#2b2b3a"
+        fadeDistance={Math.max(1200, size * 6)}
+        infiniteGrid
+      />
+    </>
+  );
+}
+
+/** One plate of the bed layout. Lives inside the Z-up group. */
+export function PlateScene({ parts, geos, mats, printer, plate, selected }: { parts: BuiltPart[]; geos: Map<string, BufferGeometry>; mats: Materials; printer: Printer; plate: Plate; selected?: string | null }) {
+  return (
+    <>
+      <mesh position={[printer.x / 2, printer.y / 2, -0.6]} receiveShadow>
+        <boxGeometry args={[printer.x, printer.y, 1.2]} />
+        <meshStandardMaterial color="#17171f" roughness={0.9} />
+      </mesh>
+      {plate.items.map((it) => {
+        const p = parts.find((x) => x.id === it.partId);
+        if (!p || !geos.get(p.id)) return null;
+        return (
+          <PartMesh
+            key={`${it.partId}-${it.instance}`}
+            geometry={geos.get(p.id)!}
+            material={it.oversize || p.id === selected ? mats.selected : mats[p.role]}
+            matrix={plateTransform(p.bounds, it)}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/** Camera framing for the plates view, in Y-up world coordinates. */
+export const plateFrame = (printer: Printer) => ({ center: new Vector3(printer.x / 2, 0, -printer.y / 2), radius: Math.max(printer.x, printer.y) * 0.55 });
+
 export function Viewer() {
   const result = useStore((s) => s.result);
   const explode = useStore((s) => s.explode);
@@ -182,7 +236,7 @@ export function Viewer() {
 
   // Camera framing, in Y-up world coordinates.
   const frame = useMemo(() => {
-    if (view === 'plates') return { center: new Vector3(printer.x / 2, 0, -printer.y / 2), radius: Math.max(printer.x, printer.y) * 0.55 };
+    if (view === 'plates') return plateFrame(printer);
     if (box.isEmpty()) return { center: new Vector3(), radius: 100 };
     const c = box.getCenter(new Vector3());
     return { center: new Vector3(c.x, c.z, -c.y), radius: size / 2 };
@@ -193,23 +247,9 @@ export function Viewer() {
 
   return (
     <Canvas shadows camera={{ fov: 35, position: [300, 250, 400] }} dpr={[1, 2]} gl={{ antialias: true }}>
-      <color attach="background" args={['#0b0b10']} />
-      <hemisphereLight args={['#d6defa', '#241c2c', 1.1]} />
-      <directionalLight position={[260, 420, -300]} intensity={2.2} castShadow shadow-mapSize={[2048, 2048]} />
-      <directionalLight position={[-300, 200, 260]} intensity={0.9} color="#8fb4ff" />
-      <directionalLight position={[0, -200, -300]} intensity={0.35} color="#ffcf9a" />
+      <SceneBasics size={size} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
       <CameraRig center={frame.center} radius={frame.radius} viewKey={`${result?.fixtureId}-${view}-${printer.id}`} />
-      <Grid
-        position={[0, -0.05, 0]}
-        args={[10, 10]}
-        cellSize={10}
-        sectionSize={100}
-        cellColor="#1d1d26"
-        sectionColor="#2b2b3a"
-        fadeDistance={Math.max(1200, size * 6)}
-        infiniteGrid
-      />
       <group rotation={[-Math.PI / 2, 0, 0]}>
         {view === 'assembled' &&
           parts.map((p) =>
@@ -223,25 +263,7 @@ export function Viewer() {
             )),
           )}
         {view === 'assembled' && result && <Pixels result={result} size={size} diffuser={mats.diffuser} />}
-        {view === 'plates' && plate && (
-          <>
-            <mesh position={[printer.x / 2, printer.y / 2, -0.6]} receiveShadow>
-              <boxGeometry args={[printer.x, printer.y, 1.2]} />
-              <meshStandardMaterial color="#17171f" roughness={0.9} />
-            </mesh>
-            {plate.items.map((it) => {
-              const p = parts.find((x) => x.id === it.partId)!;
-              return (
-                <PartMesh
-                  key={`${it.partId}-${it.instance}`}
-                  geometry={geos.get(p.id)!}
-                  material={it.oversize ? mats.selected : matFor(p)}
-                  matrix={plateTransform(p.bounds, it)}
-                />
-              );
-            })}
-          </>
-        )}
+        {view === 'plates' && plate && <PlateScene parts={parts} geos={geos} mats={mats} printer={printer} plate={plate} selected={selected} />}
       </group>
     </Canvas>
   );

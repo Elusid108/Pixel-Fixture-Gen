@@ -13,8 +13,8 @@ export type Params = Record<string, ParamValue>;
 export interface ParamSpec {
   key: string;
   label: string;
-  /** `pixel` is a select whose options come from the pixel library. */
-  type: 'number' | 'select' | 'boolean' | 'pixel';
+  /** `pixel` is a select whose options come from the pixel library. `json` carries structured data (a workbench design). */
+  type: 'number' | 'select' | 'boolean' | 'pixel' | 'json';
   default: ParamValue;
   min?: number;
   max?: number;
@@ -25,6 +25,8 @@ export interface ParamSpec {
   pixels?: string[];
   group?: string;
   help?: string;
+  /** Set by the host rather than shown as a control (e.g. the printer for a workbench build). */
+  hidden?: boolean;
 }
 
 /**
