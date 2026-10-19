@@ -218,6 +218,18 @@ export const PIXELS: PixelType[] = [
     shape: { kind: 'strip', width: 10, pitch: 1000 / 60, depth: 3 },
     notes: 'Backup data line. A dead pixel does not kill the run.',
   },
+  {
+    id: 'strip-30-ws2815',
+    name: 'Strip 30/m, 12 V (WS2815)',
+    form: 'strip',
+    ic: 'WS2815',
+    volts: 12,
+    chPerPx: 3,
+    wattsPerPx: 0.24,
+    pxPerUnit: 1,
+    shape: { kind: 'strip', width: 10, pitch: 1000 / 30, depth: 3 },
+    notes: 'Backup data line at half the density: long accent lines on one 12 V feed.',
+  },
 ];
 
 const BY_ID = new Map(PIXELS.map((p) => [p.id, p]));
