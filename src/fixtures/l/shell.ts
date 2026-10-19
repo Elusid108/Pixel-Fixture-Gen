@@ -656,7 +656,7 @@ export function buildCappedShell(g: Geo, plan: ShellPlan, o: CappedShellOpts): C
       note: `Face down, natural or white PETG. One ${o.facePixel.name} ${o.facePixel.form === 'node' ? 'pushes into the collar' : 'drops into the collar pocket'} from inside.`,
     };
     if (o.split.on) {
-      const sp = splitToBed(g, pb.solid, o.split.printer, { ...o.split.opts, tol: j.side, keepOut: [{ p: [0, 0, 0], r: pb.collarR + 4 }] });
+      const sp = splitToBed(g, pb.solid, o.split.printer, { ...o.split.opts, fit: j.side * 2, keepOut: [{ p: [0, 0, 0], r: pb.collarR + 4 }] });
       parts.push(...splitParts(sp, base, instances));
       if (sp.pieces > 1) {
         splitPieces += sp.pieces * instances.length;
@@ -901,10 +901,10 @@ export function bandParts(g: Geo, ring: Manifold, s: BandSpec, split: SplitCfg, 
   if (!split.on) return { parts: [{ ...base, solid, instances }], pieces: 1, pins: 0 };
   const deg = (r: number) => (r * 180) / Math.PI;
   const midSide = deg(s.theta0 + half(s));
-  let sp = splitToBed(g, solid, split.printer, { ...split.opts, tol: s.side, mode: 'radial', sectors: (k) => s.n % k === 0, phase: () => midSide });
+  let sp = splitToBed(g, solid, split.printer, { ...split.opts, fit: s.side * 2, mode: 'radial', sectors: (k) => s.n % k === 0, phase: () => midSide });
   if (!sp.fits) {
     const corners = Array.from({ length: s.n }, (_, i) => ({ angle: deg(s.theta0 + 2 * i * half(s)), half: 4 }));
-    sp = splitToBed(g, solid, split.printer, { ...split.opts, tol: s.side, mode: 'radial', avoid: corners });
+    sp = splitToBed(g, solid, split.printer, { ...split.opts, fit: s.side * 2, mode: 'radial', avoid: corners });
   }
   return { parts: splitParts(sp, base, instances), pieces: sp.pieces, pins: sp.pins };
 }

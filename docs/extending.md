@@ -26,6 +26,7 @@ The exported 3MF is the product. Every mating pair must be modelled with its cle
 - Don't add per-fixture `tol` or `clearance` params; the Fit group replaces them.
 - Return `assembly` steps in build order: title, the part ids involved, hardware and a note. They appear in the Parts tab.
 - `check:geom` builds every fit-aware fixture at fit 0.2 and 0.8. Both must stay manifold.
+- `splitToBed(g, solid, printer, { fit })` takes the **total** fit gap. T1 (`src/fixtures/fit-coupon.ts`) is the printable joint test for the gap.
 
 ## A catalogue fixture
 

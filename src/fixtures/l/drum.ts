@@ -202,7 +202,7 @@ export const drum: FixtureDef = {
         note: `Face down, natural or white PETG. One ${pixel.name} ${pixel.form === 'node' ? 'pushes into the collar' : 'drops into the collar pocket'} from inside. Tongues top and bottom drop into the band grooves.`,
       };
       if (split.on) {
-        const sp = splitToBed(g, pb.solid, split.printer, { ...split.opts, tol: side, keepOut: [{ p: [0, 0, 0], r: pb.collarR + 4 }] });
+        const sp = splitToBed(g, pb.solid, split.printer, { ...split.opts, fit: side * 2, keepOut: [{ p: [0, 0, 0], r: pb.collarR + 4 }] });
         parts.push(...splitParts(sp, base, instances));
         if (sp.pieces > 1) {
           splitPieces += sp.pieces * instances.length;

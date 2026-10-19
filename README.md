@@ -25,12 +25,15 @@ Every concept from the brainstorm is built. All fixtures size their parts to the
 
 | Code | Fixture | Default pixels |
 |---|---|---|
-| L1 | **The Orb**: 2V/3V/4V geodesic. Panels dedupe into print counts (3V: A×60, B×120). | 180 nodes |
+| L1 | **The Orb**: 2V/3V/4V geodesic in two pixel types: nodes in the faces and PCB "stars" in the vertex caps. Panels dedupe into print counts (3V: A×60, B×120). | 180 nodes + 91 stars |
 | L2 | **Cascade**: keyed crown arcs carrying vase-mode drop tubes, with a cone, wave, spiral or seeded pattern. | 240 px |
 | L3 | **Gasolier**: lathe-turned column, S-arms, RGBW candle flames, prism drops. | 47 RGBW px |
 | L4 | **Armillary**: equator, meridian and the ecliptic at 23.4°, in keyed arcs, with a geodesic sun. | 262 px |
 | L5 | **Bloom**: tiered keyed petals under the 14″ sightline, with a battery base and runtime estimate. | 31 px |
 | L6 | **Helix**: DNA pendant of twin backbones and pixel-bar base pairs. | 100 px |
+| L7 | **Dome**: 2V/4V geodesic hemisphere on a base ring, with face nodes plus a rim strip. | 40 nodes + 94 px |
+| L8 | **Drum**: faceted cylinder of identical panel rings (straight, taper or barrel), with panel nodes plus seam strips. | 30 nodes + 156 px |
+| L9 | **Polyhedra**: football, dodecahedron or icosahedron panel shell, with face nodes plus vertex stars. | 32 nodes + 59 stars |
 
 **Modular (M)**: on the Workbench. M1 Hive tile is also in the catalogue as a single unit.
 
@@ -45,6 +48,23 @@ Every concept from the brainstorm is built. All fixtures size their parts to the
 | M7 | **Pixel Chain**: hinged links on a true catenary, with pitch checked against the strand lead. | paths, 3D paths |
 
 T0 **Socket fit coupon**: any pixel socket at three engraved clearances. Print this first.
+T1 **Fit gap coupon**: round, dovetail, key, sliding-tab and hinge joints, each at fit −0.1, fit and fit +0.1. Print it to choose your fit gap.
+
+## Fit: straight off the printer
+
+Every exported part is modelled to assemble without sanding:
+- **Fit gap** (header, default **0.4 mm**): the total gap between mating printed parts. It covers spigots, dovetails, keys, sleeves, grooves, hinges and the auto-split joints on large assemblies.
+- **Seat** (header, default 0.15 mm): the clearance around each pixel in its socket.
+- Any fixture or Workbench system can override either value in its Fit group.
+- The exported 3MF records the printer, fit gap and seat clearance it was modelled with.
+- Each fixture's Parts tab lists its assembly steps in build order.
+
+## On a phone
+
+Below about 980 px the app switches to a touch layout:
+- The 3D view fills the screen above a bottom tab bar (View · Fixtures · Params · Schedule · Parts · Export), and each tab opens a sheet you swipe up or down.
+- One finger orbits; two fingers pinch and pan.
+- On-screen buttons replace the keyboard while drawing: Finish, Close, Undo point, Cancel and the X/Y/Z plane turns.
 
 ## Drawing engine
 

@@ -138,6 +138,7 @@ export const hiveWall: FixtureDef = {
       magnets: d.magnets,
       bowties: d.bowties,
       tol: d.seat,
+      fit: d.gap,
       pixel: d.pixel,
       keyholeY: [-d.keyY, d.keyY],
       label: null,
