@@ -36,7 +36,10 @@ for (const def of FIXTURES) {
   for (const [label, params] of variants) {
     try {
       const r = runBuild(wasm, def.id, params);
-      const misfits = label === 'defaults' ? r.parts.filter((p) => !boundsFit(p.bounds, printer)).map((p) => p.name) : [];
+      // Defaults must fit the 256 bed. A fixture that sizes itself to the printer (hidden `printer`
+      // param) must also fit whichever printer a variant names.
+      const target = label === 'defaults' ? printer : label.startsWith('printer=') ? getPrinter(String(params.printer)) : null;
+      const misfits = target ? r.parts.filter((p) => !boundsFit(p.bounds, target)).map((p) => p.name) : [];
       const bad = r.errors.length > 0 || misfits.length > 0;
       if (bad) failures++;
       const tris = r.parts.reduce((s, p) => s + p.triangles * p.instances.length, 0);
@@ -44,7 +47,7 @@ for (const def of FIXTURES) {
         `${bad ? 'FAIL' : ' ok '} ${def.code.padEnd(3)} ${label.padEnd(28)} ${String(r.parts.length).padStart(2)} parts ${String(r.report.totals.px).padStart(4)} px ${String(tris).padStart(7)} tris ${r.ms.toFixed(0).padStart(5)} ms`,
       );
       for (const e of r.errors) console.log(`       ${e}`);
-      for (const m of misfits) console.log(`       does not fit ${printer.name}: ${m}`);
+      for (const m of misfits) console.log(`       does not fit ${target!.name}: ${m}`);
     } catch (e) {
       failures++;
       console.log(`FAIL ${def.code.padEnd(3)} ${label.padEnd(28)} threw: ${(e as Error).message}`);

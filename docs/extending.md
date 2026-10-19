@@ -19,7 +19,8 @@ How to add a catalogue fixture or a Workbench system. Concept rows (pixels, coun
    - `number` / `select` / `boolean` / `pixel` show in the inspector.
    - `image` is a user picture. Decode it with `decodeImage` and sample it with `sampleImage` from `src/fixtures/image.ts`. `''` means use a built-in default (make one with `imageFrom`).
    - To size parts to the user's bed, declare `{ key: 'printer', type: 'select', hidden: true, … }`. The app fills in the header printer, and `getPrinter(str(params, 'printer'))` gives you the bed.
-4. `check:geom` picks it up automatically (defaults, every option, all-min, all-max). Defaults must fit a 256 mm bed, unless the fixture auto-splits to the printer.
+4. `check:geom` picks it up automatically (defaults, every option, all-min, all-max). Defaults must fit a 256 mm bed, unless the fixture auto-splits to the printer. A fixture with the hidden `printer` param must also fit each `printer=…` variant.
+5. Oversize parts: `splitToBed(g, solid, printer, opts)` in `src/geom/split.ts` cuts a print-oriented solid into keyed pieces that fit the bed (grid cuts, or radial arcs for rings) and returns per-piece instances; `splitParts` turns that into PartSpecs on top of your own instances. `src/fixtures/l/common.ts` has the shared `SPLIT_PARAMS` (auto-split, joint, pins, printer).
 
 ## A Workbench system
 

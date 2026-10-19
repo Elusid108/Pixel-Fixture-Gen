@@ -48,7 +48,12 @@ function patchClasses(wasm: ManifoldToplevel) {
   patched = true;
   for (const cls of [wasm.Manifold, wasm.CrossSection] as unknown as Record<string, unknown>[]) {
     wrapAll(cls, ['length', 'name', 'prototype']);
-    wrapAll((cls as { prototype: Record<string, unknown> }).prototype, ['constructor', 'delete', 'isDeleted']);
+    // Embind puts the instance methods on a base prototype one level up from the class's own
+    // (which is empty), so walk the chain up to ClassHandle. Missing this leaked every
+    // instance-method result (transform, subtract, intersect…) for the life of the worker.
+    for (let p = (cls as { prototype: Record<string, unknown> }).prototype; p && !Object.prototype.hasOwnProperty.call(p, 'isDeleted'); p = Object.getPrototypeOf(p)) {
+      wrapAll(p, ['constructor', 'delete', 'isDeleted']);
+    }
   }
 }
 
