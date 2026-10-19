@@ -148,14 +148,20 @@ export function Pixels({ result, size, diffuser }: { result: BuildResult; size: 
 
 export function CameraRig({ center, radius, viewKey }: { center: Vector3; radius: number; viewKey: string }) {
   const { camera, controls } = useThree();
+  const size = useThree((s) => s.size);
+  const aspect = size.width / Math.max(1, size.height);
+  // Re-frame when the view changes shape (a sheet opens, a phone rotates), not on every pixel.
+  const shape = Math.round(aspect * 8);
   useEffect(() => {
     const ctl = controls as unknown as OrbitControlsImpl | null;
     // Fixtures face assembled +Y, which is world -Z after the Z-up → Y-up turn.
     // Three-quarter view from the front-right, slightly above.
     const dir = new Vector3(0.8, 0.6, -1).normalize();
-    // A portrait view (a phone) is narrower than it is tall: back off so the sides fit too.
-    const aspect = (camera as { aspect?: number }).aspect ?? 1;
-    const dist = Math.max(140, (radius * 2.6) / Math.min(1, Math.max(0.45, aspect)));
+    // Fit the bounding sphere in both the vertical and the horizontal field of view, so a tall
+    // phone view backs off for width and a wide desktop view for height.
+    const vFov = (((camera as { fov?: number }).fov ?? 35) * Math.PI) / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const dist = Math.max(140, (radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.08);
     camera.position.copy(center.clone().add(dir.multiplyScalar(dist)));
     camera.near = 1;
     camera.far = dist * 20;
@@ -164,9 +170,9 @@ export function CameraRig({ center, radius, viewKey }: { center: Vector3; radius
       ctl.target.copy(center);
       ctl.update();
     }
-    // Re-frame only when the fixture or view changes, not on every slider move.
+    // Re-frame only when the fixture, view or view shape changes, not on every slider move.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey, controls]);
+  }, [viewKey, controls, shape]);
   return null;
 }
 
