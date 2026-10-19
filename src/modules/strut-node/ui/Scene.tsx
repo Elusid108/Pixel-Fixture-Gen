@@ -1,7 +1,7 @@
 import { Html, Line } from '@react-three/drei';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { useMemo, useRef, useState } from 'react';
-import { Color, DoubleSide, MeshBasicMaterial, MeshStandardMaterial, Plane, Vector3 } from 'three';
+import { Color, DoubleSide, Mesh, MeshBasicMaterial, MeshStandardMaterial, Plane, Vector3 } from 'three';
 import { BENCH_COLORS as COLORS, between, pickMat, snapTo, toLocal, toWorld, UP } from '../../../ui/bench/util';
 import { WorkPlane } from '../../../ui/bench/WorkPlane';
 import type { Vec3 } from '../../../types';
@@ -23,7 +23,9 @@ function useLivePositions() {
 
 /* ---------------- Nodes ---------------- */
 
-function NodeHandles({ plan, radius, ghost }: { plan: SnPlan; radius: number; ghost: boolean }) {
+const NO_RAY = () => null;
+
+function NodeHandles({ plan, radius, ghost, passive }: { plan: SnPlan; radius: number; ghost: boolean; passive: boolean }) {
   const design = useWorkbench((s) => s.design);
   const selection = useWorkbench((s) => s.selection);
   const pending = useWorkbench((s) => s.pending);
@@ -115,6 +117,7 @@ function NodeHandles({ plan, radius, ghost }: { plan: SnPlan; radius: number; gh
           <group key={n.id} position={toWorld(p)}>
             <mesh
               material={mat}
+              raycast={passive ? NO_RAY : Mesh.prototype.raycast}
               onPointerDown={down(n.id)}
               onPointerMove={move}
               onPointerUp={up}
@@ -146,7 +149,7 @@ function NodeHandles({ plan, radius, ghost }: { plan: SnPlan; radius: number; gh
 
 /* ---------------- Struts ---------------- */
 
-function StrutHandles({ plan, radius, hubR, ghost }: { plan: SnPlan; radius: number; hubR: number; ghost: boolean }) {
+function StrutHandles({ plan, radius, hubR, ghost, passive }: { plan: SnPlan; radius: number; hubR: number; ghost: boolean; passive: boolean }) {
   const pickR = Math.max(radius * 1.3, 10);
   const design = useWorkbench((s) => s.design);
   const selection = useWorkbench((s) => s.selection);
@@ -188,6 +191,7 @@ function StrutHandles({ plan, radius, hubR, ghost }: { plan: SnPlan; radius: num
             {/* A fat, unseen pick target: thin struts are hard to hit at bench zoom. Stops short of the hubs. */}
             <mesh
               material={pickMat}
+              raycast={passive ? NO_RAY : Mesh.prototype.raycast}
               onClick={(e) => {
                 if (e.delta > 4) return;
                 e.stopPropagation();
@@ -273,7 +277,7 @@ function ChainOverlay({ plan, offset }: { plan: SnPlan; offset: number }) {
 /* ---------------- The system scene ---------------- */
 
 /** Hubs, struts, the data path and the hub work plane, inside the shared bench canvas. */
-export function SnScene({ ghost, hideStale }: SceneProps) {
+export function SnScene({ ghost, hideStale, passive }: SceneProps) {
   const tool = useWorkbench((s) => s.tool);
   const showChain = useWorkbench((s) => s.showChain);
   const selection = useWorkbench((s) => s.selection);
@@ -283,8 +287,8 @@ export function SnScene({ ghost, hideStale }: SceneProps) {
   const strutR = ghost ? plan.dims.tubeR * 1.1 : Math.max(2.5, plan.dims.tubeR * 0.35);
   return (
     <>
-      <NodeHandles plan={plan} radius={handleR} ghost={g} />
-      <StrutHandles plan={plan} radius={strutR} hubR={handleR} ghost={g} />
+      <NodeHandles plan={plan} radius={handleR} ghost={g} passive={passive} />
+      <StrutHandles plan={plan} radius={strutR} hubR={handleR} ghost={g} passive={passive} />
       {showChain && <ChainOverlay plan={plan} offset={plan.dims.tubeR + 8} />}
       {tool === 'add' && <WorkPlane onPick={(p) => useWorkbench.getState().addNode(p, selection?.kind === 'node' ? selection.id : null)} />}
     </>

@@ -10,6 +10,8 @@ import { getUI } from '../workbench/uis';
 import { BenchCanvas } from './bench/BenchCanvas';
 import { BenchCatalog } from './bench/BenchCatalog';
 import { BenchToolbar, useBenchKeys } from './bench/BenchToolbar';
+import { SketchLayer } from './sketch/SketchLayer';
+import { SketchPanel } from './sketch/SketchPanel';
 import { Catalog } from './Catalog';
 import { ExportPanel } from './ExportPanel';
 import { Inspector } from './Inspector';
@@ -203,12 +205,18 @@ export function App() {
         </div>
       </header>
 
-      {bench ? <BenchCatalog /> : <Catalog />}
+      {bench ? <BenchCatalog extra={<SketchPanel />} /> : <Catalog />}
 
       <main className="stage">
         {bench ? <BenchToolbar /> : <ViewBar />}
         <div className="canvas-wrap">
-          {bench ? <BenchCanvas /> : <Viewer />}
+          {bench ? (
+            <BenchCanvas>
+              <SketchLayer />
+            </BenchCanvas>
+          ) : (
+            <Viewer />
+          )}
           {(notes.length > 0 || error) && (
             <ul className="notes">
               {error && <li className="err">{error}</li>}

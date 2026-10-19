@@ -5,9 +5,14 @@ const fmt = (v: number, d = 1) => (Number.isInteger(v) ? String(v) : v.toFixed(d
 
 export function SchedulePanel() {
   const report = useStore((s) => s.result?.report);
+  const bench = useStore((s) => s.mode === 'workbench');
   if (!report) return null;
   if (!report.rows.length) {
-    return <p className="empty">No pixels on this one. It's shop tooling. Print it, test the fit, move on.</p>;
+    return (
+      <p className="empty">
+        {bench ? 'Nothing on the bench yet. Load a preset, place parts, or draw and generate.' : "No pixels on this one. It's shop tooling. Print it, test the fit, move on."}
+      </p>
+    );
   }
   return (
     <div className="schedule">

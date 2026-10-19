@@ -19,6 +19,16 @@ export function registerBenchTools(tools: ToolDef[]) {
 }
 export const benchTools = (system: string): ToolDef[] => [...getUI(system).tools, ...extraTools];
 
+/**
+ * Extra keyboard handlers (the drawing engine). Each runs before the defaults and returns true
+ * when it handled the key, e.g. Ctrl+Z undoing the sketch while a draw tool is active.
+ */
+type KeyHandler = (e: KeyboardEvent, tool: string) => boolean;
+const keyHandlers: KeyHandler[] = [];
+export function registerBenchKeyHandler(h: KeyHandler) {
+  if (!keyHandlers.includes(h)) keyHandlers.push(h);
+}
+
 /** Keyboard: tools, delete, undo/redo, escape. Ignored while typing in a field. */
 export function useBenchKeys() {
   useEffect(() => {
@@ -26,6 +36,7 @@ export function useBenchKeys() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       const st = useBench.getState();
+      if (keyHandlers.some((h) => h(e, st.tool))) return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();

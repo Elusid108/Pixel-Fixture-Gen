@@ -20,6 +20,8 @@ export interface SceneProps {
   ghost: boolean;
   /** Something is being dragged: built parts are hidden until the rebuild lands. */
   hideStale: boolean;
+  /** A drawing tool is active: draw, but don't take pointer events. */
+  passive: boolean;
 }
 
 export interface SystemUI {

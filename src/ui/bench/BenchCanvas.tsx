@@ -56,7 +56,7 @@ export function BenchCanvas({ children }: { children?: ReactNode }) {
       dpr={[1, 2]}
       gl={{ antialias: true }}
       onPointerMissed={(e) => {
-        if (e.button === 0 && !ui.tools.find((t) => t.id === tool)?.plane) useBench.getState().select(null);
+        if (e.button === 0 && !tool.startsWith('draw:') && !ui.tools.find((t) => t.id === tool)?.plane) useBench.getState().select(null);
       }}
     >
       <SceneBasics size={fr.radius * 1.4} />
@@ -74,7 +74,7 @@ export function BenchCanvas({ children }: { children?: ReactNode }) {
               )}
             {showParts && built && !hideStale && <BuiltPixels key={system} usePixelSize={ui.usePixelSize ?? DEFAULT_PIXEL_SIZE} result={built} diffuser={mats.diffuser} />}
           </group>
-          <Scene key={system} ghost={ghost} hideStale={hideStale} />
+          <Scene key={system} ghost={ghost} hideStale={hideStale} passive={tool.startsWith('draw:')} />
           {children}
         </>
       )}
