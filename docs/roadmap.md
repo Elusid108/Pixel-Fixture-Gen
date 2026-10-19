@@ -111,7 +111,7 @@ concepts/       existing 9 sheets + new SVG sheets for S/L/M series (same visual
 - **Flagship workbench system: M4 Strut & Node.**
 - **Printers:** ship every preset with no strong default. The first run asks which printer you use and remembers it (localStorage, wrapped in try/catch). 3MF always carries material roles, and slicers without multi-material simply ignore them.
 - **UI:** React + react-three-fiber + zustand on Vite + TS.
-- **Phases 1–2 are built** (foundation + S1, S2, M1, T0). Phases 3–5 are next.
+- **Phases 1–2 are built** (foundation + S1, S2, M1, T0). **Phase 3's Strut & Node half is built** (the Workbench plus M4 end to end). Port-based snapping for Hive and Linea, and phases 4–5, are next.
 
 ### Strut & Node design notes (Phase 3 flagship)
 - **Bench:** place nodes in 3D (grid snap plus free drag) and drag to connect struts. Presets: tetra, cube, octa, icosa, 2V geodesic, branching tree.
@@ -139,6 +139,9 @@ concepts/       existing 9 sheets + new SVG sheets for S/L/M series (same visual
    - Catalog page: fixture view + inspector + schedule table + export.
 2. **First fixtures (done):** S1 Swatchbook, S2 Fresnel, M1 Hive M-tile, each with params, schedule and 3MF.
 3. **Workbench + Strut & Node:** ports and snapping, data & power planner drawer, plates view, Strut & Node end-to-end. Then Hive and Linea on the same bench.
+   - *Done:* Workbench mode (catalog, bench, inspector; drawer with schedule, plates, data & power and export). M4 has grid-snapped hubs and drag, six presets, exact-angle hubs with angle and collision checks, support-free split halves with dowels and an M3 bolt, wrapped engraving, cut-to-length vase tubes with keyed spines and couplers, dark struts, a greedy-DFS data path with click override and flips, and dedupe into print counts.
+   - *Not yet:* typed ports and port snapping (`ModuleDef`) for Hive and Linea on the bench.
+   - *Overhang rule:* hubs count as support-free at ≤ 60° from vertical by default (a slicer support threshold of 30°). The worst preset hub is the icosahedron's at about 40°.
 4. **Large assemblies:** L1 Orb, L2 Cascade, L5 Bloom with auto-split and identical-part dedupe.
 5. **Exports and preview:** xLights `.xmodel`, WLED `ledmap.json` and x/y/z CSV; bloom effect preview; Bambu/Orca plate metadata; the remaining S/L/M catalog; and SVG concept sheets for the new concepts in the existing style.
 
