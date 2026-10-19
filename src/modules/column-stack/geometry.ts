@@ -55,16 +55,19 @@ function spigotPilots(g: Geo, d: CsDims, top: number): Manifold[] {
   return [Math.PI / 2, -Math.PI / 2].map((a) => g.place(g.cylZ(1.25, -1, d.rs - d.rsi + 2, 0, 0, 12), radialFrame(a, d.rsi - 1, top + d.J / 2)));
 }
 
-/** Socket key slot (0°, up to `slotTop`) and the two M3 clearance holes. */
+/**
+ * Socket key slot (0°, up to `slotTop`) and the two M3 clearance holes. The slot is the rib plus
+ * the fit gap across, and half a gap deeper than the rib stands.
+ */
 function socketCuts(g: Geo, d: CsDims, slotTop = d.J + 0.8): Manifold[] {
   return [
-    g.box([d.Ri - 0.5, -(d.keyW / 2 + d.fit), -1], [d.Ri + d.keyD + d.fit + 0.1, d.keyW / 2 + d.fit, slotTop]),
+    g.box([d.Ri - 0.5, -(d.keyW / 2 + d.side), -1], [d.Ri + d.keyD + d.side, d.keyW / 2 + d.side, slotTop]),
     ...[Math.PI / 2, -Math.PI / 2].map((a) => g.place(g.cylZ(1.7, -1, d.R - d.Ri + 2, 0, 0, 16), radialFrame(a, d.Ri - 1, d.J / 2))),
   ];
 }
 
-/** Room for the spigot of the part below: nothing but the shell may sit here. */
-const socketClearance = (g: Geo, d: CsDims) => g.tubeZ(d.Ri + 0.01, d.rsi - 0.6, -1, d.J + 0.6);
+/** Room for the spigot of the part below, plus half a fit gap: nothing but the shell may sit here. */
+const socketClearance = (g: Geo, d: CsDims) => g.tubeZ(d.Ri + 0.01, d.rsi - d.side - 0.1, -1, d.J + d.side + 0.1);
 
 /* ---------------- Segments ---------------- */
 
@@ -87,11 +90,11 @@ function helixSolid(g: Geo, d: CsDims, s: SegPlan & { layout: { kind: 'helix' } 
 function bandSolid(g: Geo, d: CsDims, s: SegPlan): Manifold {
   const top = s.h - 2 - (d.Ri - d.rsi);
   const shell = g.revolve(jointProfile(d, s.h, ridgeInner(d, [d.Ri, top])));
-  return g.cut(g.union([shell, spigotRib(g, d, s.h)]), [...socketCuts(g, d, d.J + d.carrierT + 0.2), ...spigotPilots(g, d, s.h)]);
+  return g.cut(g.union([shell, spigotRib(g, d, s.h)]), [...socketCuts(g, d, d.ridgeZ), ...spigotPilots(g, d, s.h)]);
 }
 
-/** Key tab on a carrier disc, so the PCB's first LED always sits at the same angle. */
-const carrierTab = (g: Geo, d: CsDims) => g.box([d.Ri - 0.6, -(d.keyW / 2 - 0.15), 0], [d.Ri + d.keyD - 0.1, d.keyW / 2 - 0.15, d.carrierT]);
+/** Key tab on a carrier disc, so the PCB's first LED always sits at the same angle. Same section as the spigot rib, so it fits the key slot the same way. */
+const carrierTab = (g: Geo, d: CsDims) => g.box([d.Ri - 0.6 - d.side, -d.keyW / 2, 0], [d.Ri + d.keyD - d.side, d.keyW / 2, d.carrierT]);
 
 /** Ring band carrier: disc with the ring PCB seat, and a 45° funnel that throws its light onto the band. */
 export function bandCarrierSolid(g: Geo, d: CsDims, s: SegPlan & { layout: { kind: 'band' } }): Manifold {
@@ -240,7 +243,7 @@ export function segmentSolid(g: Geo, d: CsDims, s: SegPlan): Manifold {
 
 /** Jewel carrier for the lit caps: disc with the jewel seat, resting on the last spigot. */
 export function jewelCarrierSolid(g: Geo, d: CsDims): Manifold {
-  const body = g.union([g.cylZ(d.Ri - 0.3, 0, d.carrierT), carrierTab(g, d)]);
+  const body = g.union([g.cylZ(d.Ri - d.side, 0, d.carrierT), carrierTab(g, d)]);
   return g.cut(body, [g.place(socketCutter(g, d.jewel, { tol: d.tol, over: 0.5, wire: d.carrierT + 1 }), [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, d.carrierT, 1])]);
 }
 
@@ -258,7 +261,7 @@ function domeSolid(g: Geo, d: CsDims, c: CapPlan & { layout: { kind: 'dome' } })
   };
   // Circular arc to 45°, then a 45° cone to the tip: a dome that never overhangs past 45°.
   const profile: P2[] = [[R, 0], ...arc(R, 0, 45), [0, top], [0, top - t * Math.SQRT2], ...arc(R - t, 45, 0), [d.Ri - 1.5, d.ridgeZ], [d.Ri, d.ridgeZ], [d.Ri, 0]];
-  return g.cut(g.revolve(profile), socketCuts(g, d, d.J + d.carrierT + 0.2));
+  return g.cut(g.revolve(profile), socketCuts(g, d, d.ridgeZ));
 }
 
 /** Fresnel cap, modelled assembled (socket down, lens on top), returned laid lens-face down. */
@@ -287,7 +290,7 @@ function fresnelSolid(g: Geo, d: CsDims, c: CapPlan & { layout: { kind: 'fresnel
   }
   // Teeth face the jewel; the flat face is the outside. Printed flat face down: no supports.
   const profile: P2[] = [[d.R, 0], [d.R, Hc], [0, Hc], ...lens.reverse(), [rFlat, Hc - lt], [d.Ri, Hc - lt], [d.Ri, d.ridgeZ + 1.5], [d.Ri - 1.5, d.ridgeZ], [d.Ri, d.ridgeZ], [d.Ri, 0]];
-  const asm = g.cut(g.revolve(profile), socketCuts(g, d, d.J + d.carrierT + 0.2));
+  const asm = g.cut(g.revolve(profile), socketCuts(g, d, d.ridgeZ));
   return { ...layFlat(g, asm, Rx(180)), zones: zoneR.length };
 }
 

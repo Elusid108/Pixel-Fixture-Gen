@@ -7,6 +7,7 @@ import { socketCutter } from '../../pixels/sockets';
 import { planeNormal } from '../../sketch/geom';
 import type { Vec2 } from '../../sketch/types';
 import type { FixtureDef, HardwareLine, Mat4, PartSpec, PixelPlacement, ScheduleLine } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { planeFrame } from '../shared/layout';
 import { layoutFacets, SQ3, type FwLayout, type TileClass } from './layout';
 import { parseDesign } from './model';
@@ -17,11 +18,10 @@ import { FW_PARAMS, type FwDims } from './params';
  */
 /** Facet skirt corners are cut back this far from each grid vertex, so a wall-screw head fits there. */
 const CORNER_CLEAR = 4.5;
-/** Snap tab: inner face inset, thickness, width, barb height, barb catch above the plate back. */
-const TAB_IN = 3.4;
-const TAB_T = 1.2;
-const TAB_W = 6;
-const BARB = 0.5;
+/** Snap tab: inner face inset, thickness, width. The barb is `FwDims.barb`: the fit gap plus the snap. */
+export const TAB_IN = 3.4;
+export const TAB_T = 1.2;
+export const TAB_W = 6;
 /** Free cantilever length of the tab inside the facet, above its pad. */
 const TAB_FREE = 5;
 /** Magnet pads and pockets on each tile edge, at ±s/4. */
@@ -71,7 +71,9 @@ function facetSolid(g: Geo, D: FwDims, H: number): Manifold {
   const skirt = outer.subtract(outer.offset(-D.wall, 'Miter'));
   const padTop = Math.max(D.face + 1.5, H - TAB_FREE);
   const top = H + D.plate + 1.6;
-  const zc = H + D.plate + 0.15;
+  // The barb catches half a fit gap clear of the plate back.
+  const zc = H + D.plate + D.half;
+  const BARB = D.barb;
 
   const pads: P2[][] = [];
   const tabs: Manifold[] = [];
@@ -122,8 +124,9 @@ function backerSolid(g: Geo, D: FwDims, cls: TileClass): Manifold {
       const b = fl(t[(k + 1) % 3]);
       const mid: P2 = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       const inward = unit([c[0] - mid[0], c[1] - mid[1]]);
-      const d0 = TAB_IN - D.fit;
-      slots.push(edgeRect(mid, inward, d0, d0 + TAB_T + BARB + 2 * D.fit, -TAB_W / 2 - D.fit - 0.1, TAB_W / 2 + D.fit + 0.1));
+      // Slot: the tab plus the fit gap (half each side), and room behind it for the barb to pass.
+      const d0 = TAB_IN - D.half;
+      slots.push(edgeRect(mid, inward, d0, d0 + TAB_T + D.barb + D.fit, -TAB_W / 2 - D.half, TAB_W / 2 + D.half));
     }
   });
   const screws = cls.screws.map(fl);
@@ -208,7 +211,7 @@ export const facetWall: FixtureDef = {
         solid: facetSolid(g, D, H),
         instances: fs.map((f) => mul(PF, T(f.centroid[0], f.centroid[1], D.depth + H), Rz(f.up ? 0 : 180), Rx(180))),
         explode: scale(n, 1.2),
-        note: `Translucent PETG or PLA, face down, ${fmt(D.face)} mm face. Snaps into the backer on three tabs; pry a tab from behind to remove.`,
+        note: `Translucent PETG or PLA, face down, ${fmt(D.face)} mm face. Snaps into the backer on three tabs: slots are the tab plus ${mm(D.fit)} mm, and each barb catches ${mm(D.barb - D.half)} mm past the slot edge. Pry a tab from behind to remove.`,
       });
     }
 
@@ -247,6 +250,26 @@ export const facetWall: FixtureDef = {
     const triArea = (SQ3 / 4) * (D.side - 2 * SQ3 * (D.facetGap + D.wall)) ** 2;
     const enclosure = L.chain.reduce((v, f) => v + triArea * D.heights[f.level], 0) / 1000;
 
-    return { parts, pixels, schedule, hardware, warnings, enclosureCm3: enclosure };
+    const backers = idsOf(parts, 'backer-');
+    const assembly = steps(parts, [
+      {
+        title: 'Load the backers',
+        parts: backers,
+        hardware: `${L.chain.length}× ${D.pixel.name}${D.magnets && magnets ? `, ${magnets}× 6×3 magnet` : ''}`,
+        note: `Push a node into each socket from the front (${mm(D.tol)} mm seat clearance) and chain them in the order on the Data tab.${D.magnets ? ' Glue magnets in: the pocket ahead (counter-clockwise, seen from the front) N out, the other S out.' : ''}`,
+      },
+      {
+        title: 'Screw the backers to the wall',
+        parts: backers,
+        hardware: screws ? `${screws}× pan-head screw + plug` : undefined,
+        note: `Start at ${L.tiles[0].id} and let the magnets pull each tile into line, ${mm(D.fit)} mm from its neighbours. Plug the pigtails together through the edge notches as you go.`,
+      },
+      {
+        title: 'Snap on the facets',
+        parts: idsOf(parts, 'facet-'),
+        note: 'Match each facet to its depth (D1 shallow to D3 deep, as on the bench) and press it straight on until all three tabs click.',
+      },
+    ]);
+    return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3: enclosure };
   },
 };

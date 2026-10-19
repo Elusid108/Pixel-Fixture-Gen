@@ -1,3 +1,4 @@
+import { fitOf, seatOf, sideOf } from '../../fit';
 import { num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import type { Params } from '../../types';
@@ -30,7 +31,10 @@ export interface PcDims {
   /** Widest outside radius. */
   R: number;
   wall: number;
+  /** Node seat clearance. */
   tol: number;
+  /** Fit gap: the knuckle runs between the clevis cheeks with half of it each side. */
+  fit: number;
   gap: number;
   hinge: HingeKind;
   /** Outer body profile (r, z), bottom axis point first, apex axis point last. */
@@ -65,6 +69,8 @@ export interface PcDims {
 }
 
 const SQ2 = Math.SQRT2;
+/** Radial press on a printed hinge pin in the clevis cheeks, mm, on top of the fit gap. */
+export const PIN_PRESS = 0.15;
 
 function shapeProfile(shape: LinkShape, R: number, minWaist: number): P2[] {
   if (shape === 'faceted') {
@@ -121,8 +127,9 @@ export function pcDims(p: Params): PcDims {
   const shape = (str(p, 'shape') as LinkShape) || 'globe';
   const R = num(p, 'beadD') / 2;
   const wall = num(p, 'wall');
-  const tol = num(p, 'tol');
-  const gap = num(p, 'gap');
+  const tol = seatOf(p);
+  const fit = fitOf(p);
+  const gap = sideOf(p);
   const hinge: HingeKind = str(p, 'hinge') === 'printed' ? 'printed' : 'filament';
   const nodeR = pixel.shape.kind === 'round' ? pixel.shape.d / 2 : 6;
   const nodeLen = pixel.shape.depth;
@@ -143,8 +150,11 @@ export function pcDims(p: Params): PcDims {
   const yc0 = tK / 2 + gap;
   const yc1 = yc0 + tC;
   const pinR = hinge === 'printed' ? 1.45 : 0.875;
-  const holeK = pinR + (hinge === 'printed' ? 0.2 : 0.15);
-  const holeC = pinR + (hinge === 'printed' ? 0.05 : 0.1);
+  // Printed D-pin: it runs in the knuckle with the fit gap across, and presses into the cheeks
+  // with PIN_PRESS of interference on top of the gap. A 1.75 mm filament pin is hardware and
+  // keeps its own hole sizes.
+  const holeK = hinge === 'printed' ? pinR + gap : pinR + 0.15;
+  const holeC = hinge === 'printed' ? pinR + gap - PIN_PRESS : pinR + 0.1;
 
   const wi = rNeck + 0.8;
   const wo = wi + 4;
@@ -163,6 +173,7 @@ export function pcDims(p: Params): PcDims {
     R,
     wall,
     tol,
+    fit,
     gap,
     hinge,
     profile,

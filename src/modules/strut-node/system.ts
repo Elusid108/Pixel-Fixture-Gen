@@ -2,7 +2,8 @@ import { fromPlane } from '../../sketch/geom';
 import type { SketchPath, SketchRegion } from '../../sketch/types';
 import type { SystemCore } from '../../workbench/system';
 import { add, dist, emptyDesign, nextId, parseDesign, scale, type SnDesign } from './model';
-import { snParams } from './plan';
+import { buildParamsWith } from '../shared/params';
+import { SN_PARAMS } from './params';
 import { designRadius, PRESETS } from './presets';
 import type { Vec3 } from '../../types';
 
@@ -51,7 +52,7 @@ export const strutNodeCore: SystemCore<SnDesign> = {
   parse: parseDesign,
   // Icosahedron first: it's what a fresh bench has always opened with.
   presets: [...PRESETS].sort((a, b) => Number(b.id === 'icosa') - Number(a.id === 'icosa')).map((p) => ({ id: p.id, code: code(p.id), name: p.name, blurb: p.blurb, make: p.make })),
-  buildParams: (design, params, printerId) => ({ ...snParams({ ...params, printer: printerId }), design: JSON.stringify(design) }),
+  buildParams: (design, params, printerId) => buildParamsWith(SN_PARAMS, design, params, printerId),
   frame: (d) => {
     if (!d.nodes.length) return { center: [0, 0, 60], radius: 300 };
     const c = d.nodes.reduce<Vec3>((s, n) => add(s, scale(n.pos, 1 / d.nodes.length)), [0, 0, 0]);

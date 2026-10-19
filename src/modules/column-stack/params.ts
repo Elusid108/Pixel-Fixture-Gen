@@ -1,3 +1,4 @@
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import type { ParamSpec, Params } from '../../types';
@@ -24,8 +25,7 @@ export const CS_PARAMS: ParamSpec[] = [
   { key: 'louverPitch', label: 'Louver pitch', type: 'number', default: 16, min: 14, max: 28, step: 1, unit: 'mm', group: 'Column', help: 'Vertical distance between louvers: one pixel cell per gap.' },
   { key: 'baseD', label: 'Base Ø', type: 'number', default: 150, min: 120, max: 170, step: 5, unit: 'mm', group: 'Base', help: 'Clamped to your bed. Wider is steadier.' },
   { key: 'bayH', label: 'Bay height', type: 'number', default: 70, min: 50, max: 110, step: 5, unit: 'mm', group: 'Base', help: 'Room for the PSU and controller under the 45° shoulder.' },
-  { key: 'fit', label: 'Spigot clearance', type: 'number', default: 0.25, min: 0.1, max: 0.5, step: 0.05, unit: 'mm', group: 'Fit', help: 'Radial gap between a spigot and the socket above it.' },
-  { key: 'tol', label: 'Pixel seat clearance', type: 'number', default: 0.15, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+  ...FIT_PARAMS,
 ];
 
 export function csParams(given: Params = {}): Params {
@@ -42,7 +42,10 @@ export interface CsDims {
   R: number;
   wall: number;
   Ri: number;
+  /** Fit gap between mating printed parts, and half of it per side. */
   fit: number;
+  side: number;
+  /** Pixel seat clearance. */
   tol: number;
   /** Joint: spigot height, spigot outer/inner radius, key rib, M3 screw height in the socket. */
   J: number;
@@ -78,9 +81,11 @@ export function csDims(p: Params): CsDims {
   const R = num(p, 'dia') / 2;
   const wall = num(p, 'wall');
   const Ri = R - wall;
-  const fit = num(p, 'fit');
+  const fit = fitOf(p);
+  const side = sideOf(p);
   const J = 8;
-  const rs = Ri - fit;
+  // Round fit: the spigot is the socket bore less the fit gap across.
+  const rs = Ri - side;
   const rsi = rs - 3;
   const carrierT = 4;
   const baseR = Math.min(num(p, 'baseD') / 2, bed.short / 2 - 1);
@@ -99,7 +104,8 @@ export function csDims(p: Params): CsDims {
     wall,
     Ri,
     fit,
-    tol: num(p, 'tol'),
+    side,
+    tol: seatOf(p),
     J,
     rs,
     rsi,
@@ -107,7 +113,8 @@ export function csDims(p: Params): CsDims {
     keyD: 1.2,
     chaseR: 8,
     carrierT,
-    ridgeZ: J + carrierT + 0.3,
+    // The ridge traps the carrier with half a fit gap above it.
+    ridgeZ: J + carrierT + side,
     louverAngle: num(p, 'louverAngle'),
     louverPitch: num(p, 'louverPitch'),
     baseR,

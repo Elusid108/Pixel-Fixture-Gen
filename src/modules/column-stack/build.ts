@@ -4,6 +4,7 @@ import { Geo } from '../../geom/geo';
 import { mul, T } from '../../geom/mat';
 import { psuFor } from '../../schedule/schedule';
 import type { FixtureDef, HardwareLine, Mat4, MaterialRole, PartSpec, PixelPlacement, ScheduleLine } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { fmt } from '../shared/layout';
 import { baySolid, bandCarrierSolid, canopySolid, capSolid, hangerSolid, jewelCarrierSolid, plateSolid, segmentSolid } from './geometry';
 import { CAPS, KINDS, parseDesign } from './model';
@@ -161,8 +162,43 @@ export const columnStack: FixtureDef = {
       0,
     );
 
+    const built = [...parts.values()].map(({ local: _l, ...p }: PartSpec<Manifold> & { local?: Mat4 }) => p);
+    const segs = idsOf(built, 'seg-');
+    const assembly = steps(built, [
+      floors.length > 0 && {
+        title: 'Fit out the base',
+        parts: ['base-bay', 'base-plate'],
+        hardware: `${4 * floors.length}× M3 heat-set insert, ${4 * floors.length}× M3×8 countersunk, PG7 gland, PSU, controller`,
+        note: 'Melt the inserts into the bay bosses, cable-tie the PSU and controller to the plate, fit the gland, then screw the plate on.',
+      },
+      hangs.length > 0 && {
+        title: 'Hang the canopy and hanger',
+        parts: ['canopy', 'hanger'],
+        hardware: `${hangs.length}× M10×1 lamp nipple + loop nut, PG7 cord grip, ${2 * hangs.length}× M4×40`,
+        note: 'Screw the canopy to the ceiling crossbar and hang each drop on its cable through the hanger.',
+      },
+      {
+        title: 'Load the segments',
+        parts: [...segs, 'band-carrier', 'jewel-carrier'],
+        note: `Seat the pixels (${mm(d.tol)} mm seat clearance) and fit a pigtail pair to each lit segment. Ring and jewel carriers drop into the bore with ${mm(d.fit)} mm across, tab in the key slot.`,
+      },
+      {
+        title: 'Stack the column',
+        parts: [...idsOf(built, 'base-bay', 'hanger'), ...segs],
+        hardware: joints ? `${2 * joints}× M3×8 self-tapper` : undefined,
+        note: `Each spigot is ${mm(d.fit)} mm under the socket bore and the key slot ${mm(d.fit)} mm wider than its rib: slide the next segment on rib to slot, plug the pigtails through the chase and drive two self-tappers through the socket into the spigot.`,
+      },
+      {
+        title: 'Cap it',
+        parts: [...idsOf(built, 'cap-'), 'jewel-carrier'],
+        hardware: '2× M3×8 self-tapper per cap',
+        note: 'Lit caps: rest the jewel carrier on the last spigot first; the cap ridge traps it.',
+      },
+    ]);
+
     return {
-      parts: [...parts.values()].map(({ local: _l, ...p }: PartSpec<Manifold> & { local?: Mat4 }) => p),
+      parts: built,
+      assembly,
       pixels,
       schedule,
       hardware,

@@ -5,6 +5,7 @@ import { mul, Rx, Rz, T } from '../../geom/mat';
 import { add, basis, cross, frameX, scale } from '../../geom/vec';
 import { socketCutter } from '../../pixels/sockets';
 import type { FixtureDef, HardwareLine, Mat4, PartSpec, PixelPlacement, ScheduleLine, Vec3 } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { parseDesign } from './model';
 import { bedAngle, LINEA_PARAMS, type LinDims } from './params';
 import { edgePixels, planLinea, straightOffsets, type LineaPlan, type PNode } from './plan';
@@ -29,8 +30,6 @@ import {
 
 /** Extrusions along Z turned to run along X: section (y, z) → bar frame. */
 const ALONG_X: Mat4 = basis([0, 1, 0], [0, 0, 1], [1, 0, 0]);
-/** Gap between covers at every seam, each side. */
-const COVER_GAP = 0.2;
 
 const fmt = (v: number) => (Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1));
 
@@ -86,10 +85,15 @@ class Kit {
 
 /* ---------------- Straights ---------------- */
 
+/**
+ * Every part that meets another at a seam (straights, joint arms, covers, lids, combs) stops
+ * half the fit gap short of it, so neighbours have the full fit gap between them. Pixel
+ * positions don't move: the gap comes out of the parts, not the pitch.
+ */
 function straightBody(k: Kit, c: number): Manifold {
   const { g, D } = k;
   const L = c * D.pitch;
-  const body = k.prism(k.channel, 0, L);
+  const body = k.prism(k.channel, D.clr, L - D.clr);
   const cutters: (Manifold | null)[] = [k.stripSeat(-1, L + 1), ...k.pockets(0, 1), ...k.pockets(L, -1)];
   if (!D.strip) {
     const pocket = socketCutter(g, D.pixel, { tol: D.tol, wire: 0 });
@@ -101,8 +105,8 @@ function straightBody(k: Kit, c: number): Manifold {
 function diffuser(k: Kit, c: number): Manifold {
   const { g, D } = k;
   const L = c * D.pitch;
-  const x0 = COVER_GAP;
-  const x1 = L - COVER_GAP;
+  const x0 = D.clr;
+  const x1 = L - D.clr;
   const cover = k.section('cover', () => coverPieces(D));
   if (D.profile === 'flat') return k.prism(cover, x0, x1);
   const open = k.section('coverOpen', () => coverPieces(D)).subtract(k.section('aperture', () => [apertureCut(D)]));
@@ -120,9 +124,9 @@ function diffuser(k: Kit, c: number): Manifold {
 function comb(k: Kit, c: number): Manifold {
   const { g, D } = k;
   const L = c * D.pitch;
-  const rails = k.prism(k.section('rails', () => combRails(D)), COVER_GAP, L - COVER_GAP);
+  const rails = k.prism(k.section('rails', () => combRails(D)), D.clr, L - D.clr);
   const blade = k.section('cell', () => [bladeSection(D, D.H - 0.3)]);
-  return g.union([rails, ...k.blades(blade, c, COVER_GAP, L - COVER_GAP)]);
+  return g.union([rails, ...k.blades(blade, c, D.clr, L - D.clr)]);
 }
 
 /* ---------------- Joints ---------------- */
@@ -176,7 +180,7 @@ function jointBody(k: Kit, n: PNode, arms: ArmGeo[]): Manifold {
     ],
   ]);
   for (const a of live) {
-    solids.push(g.place(k.prism(outer, 0, a.len), a.F));
+    solids.push(g.place(k.prism(outer, 0, a.len - D.clr), a.F));
     const local: (Manifold | null)[] = [k.prism(k.chamber, 0, a.len + 1), k.prism(back, 0, a.len + 1), k.prism(vCut, 0, a.len + 1), k.stripSeat(0, a.len + 1), ...k.pockets(a.len, -1)];
     for (const m of local) if (m) cutters.push(g.place(m, a.F));
   }
@@ -191,7 +195,7 @@ function jointLid(k: Kit, arms: ArmGeo[]): Manifold {
   const { g, D } = k;
   const cs = k.section('lid', () => coverPieces(D));
   const parts: Manifold[] = [g.revolve(lidHubHalf(D))];
-  for (const a of arms) if (a.len > COVER_GAP + 0.5) parts.push(g.place(k.prism(cs, 0, a.len - COVER_GAP), a.F));
+  for (const a of arms) if (a.len > D.clr + 0.5) parts.push(g.place(k.prism(cs, 0, a.len - D.clr), a.F));
   return g.union(parts);
 }
 
@@ -203,14 +207,17 @@ function clipSolid(k: Kit): Manifold {
   const cl = 12;
   const ct = 2;
   const cb = cable ? 3 : 2.4;
-  const yIn = D.W / 2 + 0.15;
+  // The clip's arms clear the channel by half the fit gap each side. Its lips snap into the
+  // clip grooves and stop half a gap short of the groove floor and faces.
+  const yIn = D.W / 2 + D.clr;
   const cg = D.clipGroove;
   const zm = (cg.z0 + cg.z1) / 2;
+  const lh = (cg.z1 - cg.z0) / 2 - D.clr;
   const top = cg.z1 + 0.8;
   const lip: P2[] = [
-    [yIn + 0.01, zm - 0.6],
-    [D.W / 2 - cg.d + 0.15, zm],
-    [yIn + 0.01, zm + 0.6],
+    [yIn + 0.01, zm - lh],
+    [D.W / 2 - cg.d + D.clr, zm],
+    [yIn + 0.01, zm + lh],
   ];
   const lips = k.section('lips', () => [lip, lip.map(([y, z]) => [-y, z] as P2).reverse()]);
   const solid = g.union([
@@ -249,6 +256,7 @@ export function buildLinea(g: Geo, plan: LineaPlan) {
       byCount.get(s.count)!.push(F);
     }
   }
+  const snapNote = `Snaps into the channel: legs ${mm(D.clr)} mm off each wall, barbs ${mm(D.snap)} mm past it.`;
   const coverName = D.profile === 'flat' ? 'Flat diffuser' : D.profile === 'dome' ? 'Dome diffuser' : 'Louver grille';
   for (const [c, frames] of [...byCount.entries()].sort((a, b) => b[0] - a[0])) {
     const L = c * D.pitch;
@@ -269,16 +277,16 @@ export function buildLinea(g: Geo, plan: LineaPlan) {
     const flip = D.profile === 'dome' ? T(0, 0, 0) : Rx(180);
     parts.push({
       id: `cover-${c}`,
-      name: `${coverName} · ${fmt(L - 2 * COVER_GAP)} mm`,
+      name: `${coverName} · ${fmt(L - 2 * D.clr)} mm`,
       role: D.profile === 'louvered' ? 'baffle' : 'diffuser',
       ...place(diffuser(k, c), flip),
       explode: face0,
       note:
         D.profile === 'dome'
-          ? `Opal PETG, legs down; the crown bridges ${fmt(2 * (D.wc / 2 - D.clr - D.legT))} mm. Snaps into the channel.${diag}`
+          ? `Opal PETG, legs down; the crown bridges ${fmt(2 * (D.wc / 2 - D.clr - D.legT))} mm. ${snapNote}${diag}`
           : D.profile === 'flat'
-            ? `Opal PETG, face down. Snaps into the channel.${diag}`
-            : `Black, face down: one louver per pixel. Snaps into the channel.${diag}`,
+            ? `Opal PETG, face down. ${snapNote}${diag}`
+            : `Black, face down: one louver per pixel. ${snapNote}${diag}`,
     });
     if (D.cells) {
       parts.push({
@@ -320,7 +328,7 @@ export function buildLinea(g: Geo, plan: LineaPlan) {
         solid: lid.solid,
         instances: frames.map((F) => mul(F, lid.instance)),
         explode: face0,
-        note: 'Black, face down. Snaps on over the strip jumpers.',
+        note: `Black, face down. Snaps on over the strip jumpers, like the covers.`,
       });
     }
   }
@@ -398,8 +406,36 @@ export function buildLinea(g: Geo, plan: LineaPlan) {
     } else hardware.push({ item: 'Screw #6 / M3.5 × 25 + wall plug', qty: plan.clips.length, note: 'Countersunk into each wall clip' });
   }
 
+  const bodies = idsOf(parts, 'straight-', 'joint-');
+  const assembly = steps(parts, [
+    plan.clips.length > 0 && {
+      title: 'Fix the clips',
+      parts: ['clip'],
+      hardware: D.mount === 'cable' ? `${plan.clips.length}× M4 heat-set insert + cable gripper` : `${plan.clips.length}× #6 / M3.5 screw + plug`,
+      note: D.mount === 'cable' ? 'Set an insert in each clip boss and thread on the gripper.' : 'Screw the clips up along the drawn lines first; the bars press in last.',
+    },
+    plan.seams.length > 0 && {
+      title: 'Key the bars together',
+      parts: ['key', ...bodies],
+      note: `Lay the straights and joints face down in order and press two bowtie keys across every seam. Each part stops ${mm(D.clr)} mm short of the seam, so neighbours sit ${mm(D.fit)} mm apart and the keys have ${mm(D.fit)} mm across in their pockets.`,
+    },
+    {
+      title: D.strip ? 'Lay the strip' : 'Seat the pixels',
+      parts: bodies,
+      hardware: jumpers ? `${jumpers}× 60 mm 3-core jumper` : undefined,
+      note: `${D.strip ? 'Peel and press the strip into the seat' : 'Press a pixel PCB into each pocket'} (${mm(D.tol)} mm seat clearance), solder jumpers through the joints and press return wires into the back groove.`,
+    },
+    D.cells && { title: 'Drop in the cell combs', parts: idsOf(parts, 'cells-'), note: 'One divider sits on every pixel boundary.' },
+    {
+      title: 'Snap on the covers and lids',
+      parts: idsOf(parts, 'cover-', 'lid-'),
+      note: `Press each cover straight down until the barbs click into the wall grooves. ${mm(D.fit)} mm between covers at each seam.`,
+    },
+    plan.clips.length > 0 && { title: 'Hang the bars', parts: [...bodies, 'clip'], note: 'Press the finished bars into the clips: the lips snap into the grooves on the outside of the channel.' },
+  ]);
+
   const enclosureCm3 = (plan.stats.px * D.pitch * D.wc * D.depth) / 1000;
-  return { parts, pixels, schedule, hardware, warnings, enclosureCm3: enclosureCm3 || undefined };
+  return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3: enclosureCm3 || undefined };
 }
 
 export const linea: FixtureDef = {

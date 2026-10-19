@@ -176,7 +176,8 @@ function bandLayout(d: CsDims, hReq: number) {
   const ring = d.ring;
   const sh = ring.shape.kind === 'ring' ? ring.shape : { od: 44.5, id: 31.8 };
   const ledR = ring.ledRadii?.[0]?.r ?? (sh.od + sh.id) / 4;
-  const Rc = d.Ri - 0.3;
+  // The carrier drops into the shell bore with the fit gap across.
+  const Rc = d.Ri - d.side;
   const rb = Math.min(14, sh.id / 2 - 0.8);
   // Where the funnel's upper face meets the stem, clear of the wire chase.
   const rIn = Math.max(rb - 2.3, d.chaseR + 0.5);

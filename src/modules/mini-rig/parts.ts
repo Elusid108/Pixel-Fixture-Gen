@@ -138,7 +138,8 @@ export function baseSolid(g: Geo, d: RigDims): Manifold {
   const T = d.baseT;
   const W = d.W;
   // A 1 mm rim registers the block on the plate.
-  const rim = g.extrude(g.rect(W + 3, W + 3).subtract(g.rect(W + 0.6, W + 0.6)), T - 0.5, T + 1);
+  // The block drops into the rim with the fit gap across.
+  const rim = g.extrude(g.rect(W + 3 + d.fit, W + 3 + d.fit).subtract(g.rect(W + d.fit, W + d.fit)), T - 0.5, T + 1);
   const plate = g.union([g.extrude(g.roundRect(S, S, 6), 0, T), rim]);
   const cutters: Manifold[] = [
     g.cylZ(3, -1, T + 1, 0, 0, 16),
@@ -227,8 +228,8 @@ export function parBody(g: Geo, id: InstDims, d: RigDims): Manifold {
   ]);
 }
 
-/** Lens disc for a PAR or mover, printed in natural PETG. */
-export const lensSolid = (g: Geo, r: number, fit: number): Manifold => g.cylZ(r - fit, 0, 1, 0, 0, 48);
+/** Lens disc for a PAR or mover, printed in natural PETG: the mouth Ø less the fit gap. */
+export const lensSolid = (g: Geo, r: number, fit: number): Manifold => g.cylZ(r - fit / 2, 0, 1, 0, 0, 48);
 
 export function moverBase(g: Geo, id: InstDims): Manifold {
   const m = id.mover!;
@@ -274,15 +275,18 @@ export function battenBody(g: Geo, id: InstDims, d: RigDims): Manifold {
   const sw = d.strip.shape.kind === 'strip' ? d.strip.shape.width : 10;
   const sd = d.strip.shape.depth;
   const ch = sd + 2.5;
+  // Strip channel: the strip plus its seat clearance. Diffuser grooves: the diffuser plus the
+  // fit gap, floor at hB − 2.2 where the diffuser sits.
+  const z0 = b.hB - 2.2;
   const cs = g
     .rect(b.wB, b.hB, 0, b.hB / 2)
-    .subtract(g.rect(sw + 0.6, ch + 1, 0, b.hB - ch / 2 + 0.5))
-    .subtract(g.rect(sw + 0.6 + 2, 1.2, 0, b.hB - 1.6))
+    .subtract(g.rect(sw + 2 * d.tol, ch + 1, 0, b.hB - ch / 2 + 0.5))
+    .subtract(g.rect(b.grooveW, b.grooveH, 0, z0 + b.grooveH / 2))
     .subtract(g.circle(1.3, 0, id.zT));
   return g.place(g.extrude(cs, -b.Lb / 2, b.Lb / 2), basis([0, 1, 0], [0, 0, 1], [1, 0, 0]));
 }
 
 export function battenDiffuser(g: Geo, id: InstDims): Manifold {
   const b = id.batten!;
-  return g.box([-(b.Lb - 0.5) / 2, -b.diffW / 2, 0], [(b.Lb - 0.5) / 2, b.diffW / 2, 1]);
+  return g.box([-(b.Lb - 0.5) / 2, -b.diffW / 2, 0], [(b.Lb - 0.5) / 2, b.diffW / 2, b.diffT]);
 }

@@ -1,4 +1,5 @@
 import { hiveTileDims, type HiveTileDims } from '../../fixtures/hive';
+import { DEFAULT_FIT_GAP, fitOf, seatOf, sideOf } from '../../fit';
 import { bool, num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import { bounds2, distToPolygon, pointInPolygon, polygonArea } from '../../sketch/geom';
@@ -27,8 +28,8 @@ const RINGS: Record<HwSize, number> = { S: 1, M: 2, L: 3 };
 export type HwSize = 'S' | 'M' | 'L';
 const SIZES: HwSize[] = ['S', 'M', 'L'];
 
-/** Seam between neighbouring tiles, mm. */
-export const GAP = 0.4;
+/** Default seam between neighbouring tiles, mm. The build uses the fit gap (`HwDims.gap`). */
+export const GAP = DEFAULT_FIT_GAP;
 /** Cleat rail: thickness (tiles stand off the wall by this), width, keyhole drop. */
 export const RAIL = { t: 4, w: 18, drop: 10 };
 /** A tile is "whole" when the outline covers this much of it. */
@@ -54,7 +55,11 @@ export interface HwDims extends HiveTileDims {
   zBack: number;
   magnets: boolean;
   bowties: boolean;
-  tol: number;
+  /** Fit gap: the seam between tiles and the gap at every printed joint. `side` is half of it. */
+  gap: number;
+  side: number;
+  /** Pixel seat clearance. */
+  seat: number;
   minArea: number;
   bed: Bed;
   /** Most studs one printed rail segment can carry on this bed. */
@@ -95,7 +100,8 @@ export function hwDims(params: Params): HwDims {
     fallback = `${what}${pitch !== pitchAsked ? ` at ${pitch} mm cell pitch` : ''}.`;
   }
   const rail = bool(p, 'rail');
-  const D = 2 * d.A + GAP;
+  const gap = fitOf(p);
+  const D = 2 * d.A + gap;
   const colW = (D * SQ3) / 2;
   return {
     ...d,
@@ -113,7 +119,9 @@ export function hwDims(params: Params): HwDims {
     zBack: rail ? RAIL.t : 0,
     magnets: bool(p, 'magnets'),
     bowties: bool(p, 'bowties'),
-    tol: num(p, 'tol'),
+    gap,
+    side: sideOf(p),
+    seat: seatOf(p),
     minArea: num(p, 'minArea') / 100,
     bed,
     railMax: Math.max(1, Math.floor((Math.max(bed.x, bed.y) - 1 + 2) / colW)),
@@ -686,7 +694,7 @@ export function clusterOutline(slots: [number, number][], d: Pick<HwDims, 'A' | 
   const k = (p: Vec2) => `${Math.round(p[0] * 100)},${Math.round(p[1] * 100)}`;
   const edges = new Map<string, [Vec2, Vec2]>();
   for (const [i, j] of slots) {
-    const h = hexPts(d.A + GAP / 2, slotCenter(i, j, d));
+    const h = hexPts(d.D / 2, slotCenter(i, j, d));
     for (let e = 0; e < 6; e++) {
       const a = h[e];
       const b = h[(e + 1) % 6];

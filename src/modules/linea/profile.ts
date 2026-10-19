@@ -182,8 +182,9 @@ export function apertureCut(D: LinDims): P2[] {
  */
 export function bladeSection(D: LinDims, top: number): P2[] {
   const ai = aperture(D);
-  const yw = D.wc / 2 - D.clr - 0.05;
-  const zLeg = D.H - D.t - D.legL - 0.25;
+  // Clear of the channel walls and (for the comb) the cover legs by half the fit gap.
+  const yw = D.wc / 2 - D.clr;
+  const zLeg = D.H - D.t - D.legL - D.clr;
   const yn = top > D.H ? ai + 0.2 : ai - 0.2;
   return [
     [-yw, D.zSh],
@@ -199,8 +200,8 @@ export function bladeSection(D: LinDims, top: number): P2[] {
 
 /** Side rails of the cells comb: thin walls standing on the seat shoulders, below the legs. */
 export function combRails(D: LinDims): P2[][] {
-  const yo = D.wc / 2 - D.clr - 0.05;
-  const zLeg = D.H - D.t - D.legL - 0.25;
+  const yo = D.wc / 2 - D.clr;
+  const zLeg = D.H - D.t - D.legL - D.clr;
   const side: P2[] = [
     [yo - 0.8, D.zSh],
     [yo, D.zSh],

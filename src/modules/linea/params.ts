@@ -1,3 +1,4 @@
+import { FIT_PARAMS, fitOf, seatOf, sideOf } from '../../fit';
 import { bool, num, str } from '../../fixtures/util';
 import { getPixel, type PixelType } from '../../pixels/library';
 import type { ParamSpec, Params } from '../../types';
@@ -69,8 +70,7 @@ export const LINEA_PARAMS: ParamSpec[] = [
     help: 'Clips grip grooves on the outside of the channel, so bars snap in after the clips are fixed.',
   },
   { key: 'clipEvery', label: 'Clip spacing', type: 'number', default: 400, min: 150, max: 1200, step: 10, unit: 'mm', group: 'Mounting', help: 'At least one clip per span between joints.' },
-  { key: 'tol', label: 'Strip seat clearance', type: 'number', default: 0.25, min: 0, max: 0.6, step: 0.05, unit: 'mm', group: 'Fit' },
-  { key: 'snapFit', label: 'Snap clearance', type: 'number', default: 0.15, min: 0.05, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit', help: 'Between the diffuser legs and the channel walls.' },
+  ...FIT_PARAMS,
 ];
 
 export function lineaParams(given: Params = {}): Params {
@@ -99,8 +99,14 @@ export interface LinDims {
   H: number;
   depth: number;
   td: number;
+  /** Fit gap between mating printed parts. */
+  fit: number;
+  /** Half the fit gap: cover legs to channel walls, part ends to the seam, key in pocket. */
   clr: number;
+  /** Pixel seat clearance (strip seat and PCB pockets). */
   tol: number;
+  /** How far a snap barb reaches past the face it snaps over, on top of the fit gap. */
+  snap: number;
   /** Diffuser snap legs: thickness, length; barb size; groove in the inner wall. */
   legT: number;
   legL: number;
@@ -157,7 +163,7 @@ export function linDims(p: Params): LinDims {
   const pitch = pixel.shape.kind === 'strip' ? pixel.shape.pitch : num(p, 'cellPitch');
   const sw = pixel.shape.kind === 'strip' ? pixel.shape.width : pixel.shape.kind === 'round' ? pixel.shape.d + 0.5 : 10;
   const seatD = pixel.shape.kind === 'strip' ? pixel.shape.depth : 3;
-  const tol = num(p, 'tol');
+  const tol = seatOf(p);
   const seatW = sw + 2 * tol;
   const wc = seatW + 2;
   const t = num(p, 'wall');
@@ -167,18 +173,24 @@ export function linDims(p: Params): LinDims {
   const depth = num(p, 'depth');
   const H = zSh + depth;
   const td = num(p, 'diffuser');
-  const clr = num(p, 'snapFit');
+  const fit = fitOf(p);
+  const clr = sideOf(p);
+  const snap = 0.3;
   const legT = 1;
   // Legs hang from the wall-top chamfer (inner corner at H - t); keep them clear of the seat.
   const legL = Math.max(2.2, Math.min(3.4, depth - t - 1.5));
-  const barb = 0.45;
+  // Snap: the barb reaches `snap` past the channel wall over the leg's fit gap; the groove is
+  // the barb plus the fit gap.
+  const barb = clr + snap;
   const bz0 = H - t - legL + 0.4;
-  const groove = { z0: bz0 - 0.25, z1: bz0 + 2 * barb + 0.25, d: barb + 0.1 };
-  const clipGroove = { z0: F + 0.5, z1: F + 1.9, d: 0.6 };
+  const groove = { z0: bz0 - clr, z1: bz0 + 2 * barb + clr, d: barb };
+  // Clip lips reach 0.45 into the wall face; the groove is that plus the fit gap.
+  const clipGroove = { z0: F + 0.5, z1: F + 1.9, d: 0.45 + clr };
   const back = { w: 4.4, d: 1.6 };
   const room = W / 2 - back.w / 2;
   const wide = Math.min(5, room - 1.4);
-  const key = { neck: wide * 0.55, wide, half: 6, thick: 1.4, pocket: 1.6, y: back.w / 2 + room / 2, tol: 0.12 };
+  // Key pockets are the key grown by half the fit gap, and half a gap deeper than the key is thick.
+  const key = { neck: wide * 0.55, wide, half: 6, thick: 1.4, pocket: 1.4 + clr, y: back.w / 2 + room / 2, tol: clr };
   const profile = (['flat', 'dome', 'louvered'].includes(str(p, 'profile')) ? str(p, 'profile') : 'flat') as Profile;
   const domeRise = Math.max(3, Math.min(wc * 0.45, depth * 0.6));
   const topZ = profile === 'dome' ? H + domeRise + td : H + td;
@@ -206,8 +218,10 @@ export function linDims(p: Params): LinDims {
     H,
     depth,
     td,
+    fit,
     clr,
     tol,
+    snap,
     legT,
     legL,
     barb,

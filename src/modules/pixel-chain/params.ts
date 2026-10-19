@@ -1,3 +1,4 @@
+import { FIT_PARAMS } from '../../fit';
 import type { ParamSpec } from '../../types';
 import { DESIGN_PARAM, PRINTER_PARAM } from '../shared/params';
 
@@ -62,6 +63,5 @@ export const PC_PARAMS: ParamSpec[] = [
     group: 'Hinge',
     help: 'Filament: cut a length of 1.75 mm filament and mushroom both ends with a hot nozzle. Printed: Ø2.9 D-section pins that press into the clevis.',
   },
-  { key: 'gap', label: 'Hinge side clearance', type: 'number', default: 0.3, min: 0.15, max: 0.6, step: 0.05, unit: 'mm', group: 'Fit', help: 'Between the knuckle and each clevis cheek.' },
-  { key: 'tol', label: 'Node hole clearance', type: 'number', default: 0.15, min: 0, max: 0.4, step: 0.05, unit: 'mm', group: 'Fit' },
+  ...FIT_PARAMS,
 ];

@@ -5,8 +5,9 @@ import { mul, Rx, Rz, T } from '../../geom/mat';
 import { basis, cross, norm, scale } from '../../geom/vec';
 import { socketCutter } from '../../pixels/sockets';
 import type { FixtureDef, HardwareLine, Mat4, PartSpec, PixelPlacement, ScheduleLine, Vec3 } from '../../types';
+import { idsOf, mm, steps } from '../shared/assembly';
 import { fmt, plural } from '../shared/layout';
-import { plateOutline, type P2, type PcDims } from './dims';
+import { PIN_PRESS, plateOutline, type P2, type PcDims } from './dims';
 import { anchorLabel, parseDesign } from './model';
 import { PC_PARAMS } from './params';
 import { planChain, type PcLink } from './plan';
@@ -175,7 +176,7 @@ export const pixelChain: FixtureDef = {
           const e3: Vec3 = Number.isFinite(up[0]) ? up : [0, 0, 1];
           return mul(basis(j.axis, cross(e3, j.axis), e3, j.pos), T(0, 0, -zAxis));
         }),
-        note: `Ø${fmt(2 * d.pin.r)} D-section, prints flat side down. Press through the clevis, head on either side.`,
+        note: `Ø${fmt(2 * d.pin.r)} D-section, prints flat side down. Runs in the knuckle with the ${mm(d.fit)} mm fit gap; presses into the clevis cheeks (${mm(PIN_PRESS)} mm press on top of the gap). Head on either side.`,
       });
     } else if (joints.length) {
       const L = d.pin.length + 2;
@@ -213,7 +214,24 @@ export const pixelChain: FixtureDef = {
     const ext = plan.jumps.filter((j) => j.mm > d.lead);
     if (ext.length) hardware.push({ item: '3-core extension lead, 22 AWG', qty: Math.ceil((ext.reduce((s, j) => s + j.mm, 0) * 1.2) / 100) / 10, note: `Metres, for ${plural(ext.length, 'jump')} between garlands` });
 
+    const links = idsOf(parts, 'link-', 'anchor-');
+    const assembly = steps(parts, [
+      {
+        title: 'Seat the nodes',
+        parts: links,
+        hardware: plan.px ? `${plan.strands}× ${d.pixel.name} strand` : undefined,
+        note: `Work along the strand in data order: push each node into its link from the top, lens down (${mm(d.tol)} mm seat clearance). Anchor links take theirs sideways under the bail first.`,
+      },
+      joints.length > 0 && {
+        title: 'Pin the hinges',
+        parts: [...links, ...(d.hinge === 'printed' ? ['pin'] : [])],
+        hardware: d.hinge === 'printed' ? undefined : `${joints.length}× 1.75 mm filament pin`,
+        note: `Each knuckle drops between the next link's clevis cheeks with ${mm(d.gap)} mm a side. ${d.hinge === 'printed' ? 'Press a printed pin through from either side.' : 'Push a filament pin through and mushroom both ends with a hot nozzle.'}`,
+      },
+      anchors > 0 && { title: 'Hang the garlands', parts: idsOf(parts, 'anchor-'), hardware: `${anchors}× ceiling hook or S-hook`, note: 'Hook each anchor bail, then plug each garland pigtail into the one before it.' },
+    ]);
+
     const enclosureCm3 = plan.px ? (k.cavity.volume() * plan.px) / 1000 : undefined;
-    return { parts, pixels, schedule, hardware, warnings, enclosureCm3 };
+    return { parts, pixels, schedule, hardware, warnings, assembly, enclosureCm3 };
   },
 };
