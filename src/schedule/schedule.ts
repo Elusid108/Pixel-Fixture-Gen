@@ -110,6 +110,8 @@ export function computeSchedule(
   const checks: ScheduleCheck[] = [];
   let universe = 1;
   let channel = 1;
+  /** Strand nodes are bought by the strand, so count them per node type across every unit. */
+  const strandUse = new Map<string, { px: number; units: string[]; strandLength: number }>();
 
   for (const line of lines) {
     const p = getPixel(line.pixelId);
@@ -145,12 +147,10 @@ export function computeSchedule(
     });
 
     if (p.form === 'node' && p.strandLength) {
-      const strands = Math.ceil(line.px / p.strandLength);
-      const spare = strands * p.strandLength - line.px;
-      checks.push({
-        level: 'info',
-        text: `${line.unit}: ${line.px} nodes → ${strands} strand${strands === 1 ? '' : 's'} of ${p.strandLength}${spare ? `, ${spare} spare (chain into the next fixture or cut and seal)` : ''}.`,
-      });
+      const s = strandUse.get(p.id) ?? { px: 0, units: [] as string[], strandLength: p.strandLength };
+      s.px += line.px;
+      s.units.push(line.unit);
+      strandUse.set(p.id, s);
     }
 
     if (p.leadLength) {
@@ -171,6 +171,16 @@ export function computeSchedule(
         );
       }
     }
+  }
+
+  for (const s of strandUse.values()) {
+    const strands = Math.ceil(s.px / s.strandLength);
+    const spare = strands * s.strandLength - s.px;
+    const who = s.units.length === 1 ? s.units[0] : `${s.units[0]}–${s.units[s.units.length - 1]}`;
+    checks.push({
+      level: 'info',
+      text: `${who}: ${s.px} nodes → ${strands} strand${strands === 1 ? '' : 's'} of ${s.strandLength}${spare ? `, ${spare} spare (chain into the next fixture or cut and seal)` : ''}.`,
+    });
   }
 
   const px = rows.reduce((s, r) => s + r.px, 0);
