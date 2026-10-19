@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { packPlates } from '../export/plates';
 import { boundsFit, getPrinter } from '../printers';
+import type { AssemblyStep, BuiltPart } from '../types';
 import { useStore } from './store';
 
 export function usePlates() {
@@ -13,8 +14,13 @@ export function usePlates() {
   }, [parts, printerId]);
 }
 
+// Stable empties: a fresh `[]` from a store selector re-renders forever.
+const NO_PARTS: BuiltPart[] = [];
+const NO_STEPS: AssemblyStep[] = [];
+
 export function PartsPanel() {
-  const parts = useStore((s) => s.result?.parts ?? []);
+  const parts = useStore((s) => s.result?.parts ?? NO_PARTS);
+  const assembly = useStore((s) => s.result?.assembly ?? NO_STEPS);
   const selected = useStore((s) => s.selectedPart);
   const set = useStore((s) => s.set);
   const { printer, plates } = usePlates();
@@ -66,6 +72,23 @@ export function PartsPanel() {
         </table>
       </div>
       <p className="hint">Click a part to highlight it in the view. Switch the view to Plates to see the bed layout.</p>
+      {assembly.length > 0 && (
+        <section className="assembly">
+          <h4>Assembly</h4>
+          <ol>
+            {assembly.map((st, i) => (
+              <li key={i}>
+                <b>{st.title}</b>
+                {st.parts && st.parts.length > 0 && (
+                  <span className="dim"> · {st.parts.map((id) => parts.find((p) => p.id === id)?.name ?? id).join(', ')}</span>
+                )}
+                {st.hardware && <span className="hw"> · {st.hardware}</span>}
+                {st.note && <div className="dim">{st.note}</div>}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
     </div>
   );
 }

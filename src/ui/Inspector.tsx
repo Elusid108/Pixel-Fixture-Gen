@@ -3,6 +3,7 @@ import { resolveParams } from '../fixtures/util';
 import { getPixel, pixelSpec } from '../pixels/library';
 import type { ParamSpec, ParamValue } from '../types';
 import { useStore } from './store';
+import { FitControls } from './FitControls';
 import { imageFileToParam, imageParamInfo } from './imageParam';
 
 export function Field({ spec, value, onChange }: { spec: ParamSpec; value: ParamValue; onChange: (v: ParamValue) => void }) {
@@ -89,6 +90,7 @@ export function Inspector() {
   const stored = useStore((s) => s.params[fixtureId]);
   const setParam = useStore((s) => s.setParam);
   const reset = useStore((s) => s.resetParams);
+  const unsetParam = useStore((s) => s.unsetParam);
   const def = getFixture(fixtureId);
   const values = resolveParams(def, stored);
 
@@ -112,6 +114,7 @@ export function Inspector() {
           ))}
         </fieldset>
       ))}
+      <FitControls def={def} stored={stored} setParam={setParam} unsetParam={unsetParam} />
       <button className="ghost" onClick={reset}>
         Reset to defaults
       </button>

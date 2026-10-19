@@ -3,6 +3,7 @@ import type { Params } from '../types';
 import { requestBuild } from '../build/client';
 import { getFixture } from '../fixtures/registry';
 import { resolveParams } from '../fixtures/util';
+import { hostFill, type HostSettings } from '../fit';
 import { DEFAULT_PRINTER_ID, PRINTERS } from '../printers';
 import { getCore } from '../workbench/cores';
 import { designOf, paramsOf, useBench } from '../workbench/store';
@@ -13,6 +14,7 @@ import { BenchToolbar, useBenchKeys } from './bench/BenchToolbar';
 import { SketchLayer } from './sketch/SketchLayer';
 import { SketchPanel } from './sketch/SketchPanel';
 import { Catalog } from './Catalog';
+import { GlobalFit } from './FitControls';
 import { ExportPanel } from './ExportPanel';
 import { Inspector } from './Inspector';
 import { PartsPanel, usePlates } from './PartsPanel';
@@ -34,10 +36,16 @@ function useAutoBuild() {
   const latest = useRef(0);
   const core = getCore(system);
   const fixtureId = mode === 'workbench' ? core.moduleId : catalogId;
-  const benchParams = useMemo(() => core.buildParams(design, sysParams, printerId), [core, design, sysParams, printerId]);
+  const fitGap = useStore((s) => s.fitGap);
+  const seatClearance = useStore((s) => s.seatClearance);
+  const host = useMemo(() => ({ printerId, fit: fitGap, seat: seatClearance }), [printerId, fitGap, seatClearance]);
+  const benchParams = useMemo(
+    () => hostFill(getFixture(core.moduleId), core.buildParams(design, sysParams, printerId), { ...host, fit: Number(sysParams.fit ?? host.fit), seat: Number(sysParams.seat ?? host.seat) }),
+    [core, design, sysParams, printerId, host],
+  );
   useEffect(() => {
     const ticket = ++latest.current;
-    const params = mode === 'workbench' ? benchParams : catalogParams(fixtureId, stored, printerId);
+    const params = mode === 'workbench' ? benchParams : catalogParams(fixtureId, stored, host);
     const timer = setTimeout(() => {
       setBuilding(true);
       requestBuild(fixtureId, params)
@@ -46,14 +54,13 @@ function useAutoBuild() {
         .finally(() => ticket === latest.current && setBuilding(false));
     }, mode === 'workbench' ? 250 : 120);
     return () => clearTimeout(timer);
-  }, [mode, fixtureId, stored, benchParams, printerId, setResult, setBuilding]);
+  }, [mode, fixtureId, stored, benchParams, host, setResult, setBuilding]);
 }
 
-/** Catalogue build params. Fixtures that size themselves to the bed declare a hidden `printer` param. */
-function catalogParams(fixtureId: string, stored: Params | undefined, printerId: string): Params {
+/** Catalogue build params, with the host's printer, fit gap and seat clearance filled in. */
+function catalogParams(fixtureId: string, stored: Params | undefined, host: HostSettings): Params {
   const def = getFixture(fixtureId);
-  const wantsPrinter = def.params.some((p) => p.key === 'printer' && p.hidden);
-  return resolveParams(def, wantsPrinter ? { ...stored, printer: printerId } : stored);
+  return resolveParams(def, hostFill(def, stored ?? {}, host));
 }
 
 /**
@@ -217,6 +224,7 @@ export function App() {
           <span className={`status ${building ? 'busy' : error ? 'err' : ''}`}>
             {building ? 'Building…' : error ? 'Build failed' : result ? `Built in ${result.ms.toFixed(0)} ms` : ''}
           </span>
+          <GlobalFit />
           <label className="inline">
             Printer
             <select value={printerId ?? ''} onChange={(e) => setPrinter(e.target.value)}>

@@ -82,3 +82,19 @@ describe('sketch geometry', () => {
     expect(pointInRegion([30, 0], big.outer, big.holes)).toBe(false);
   });
 });
+
+describe('fit settings', () => {
+  it('fills printer, fit and seat from the host unless the fixture overrides them', async () => {
+    const { hostFill, FIT_PARAMS, fitOf, seatOf, sideOf } = await import('../src/fit');
+    const def = { params: [...FIT_PARAMS, { key: 'printer', label: 'p', type: 'select', default: 'bambu-256', hidden: true }] } as never;
+    const host = { printerId: 'bambu-a1mini', fit: 0.4, seat: 0.15 };
+    const filled = hostFill(def, {}, host);
+    expect(filled).toMatchObject({ printer: 'bambu-a1mini', fit: 0.4, seat: 0.15 });
+    const own = hostFill(def, { fit: 0.3 }, host);
+    expect(fitOf(own)).toBe(0.3);
+    expect(seatOf(own)).toBe(0.15);
+    expect(sideOf(own)).toBeCloseTo(0.15);
+    // Fixtures that don't declare the params are left alone.
+    expect(hostFill({ params: [] } as never, {}, host)).toEqual({});
+  });
+});

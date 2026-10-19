@@ -58,6 +58,7 @@ export interface BenchState {
   setPending(id: string | null): void;
   setDrag(d: BenchState['drag']): void;
   setParam(k: string, v: ParamValue): void;
+  unsetParam(k: string): void;
   resetParams(): void;
   set<K extends 'snap' | 'workZ' | 'showParts' | 'showChain' | 'showLabels'>(k: K, v: BenchState[K]): void;
 }
@@ -165,6 +166,13 @@ export const useBench = create<BenchState>((set, get) => {
     setParam: (k, v) => {
       const s = get();
       set({ params: { ...s.params, [s.system]: { ...paramsOf(s), [k]: v } } });
+      persist(get());
+    },
+    unsetParam: (k) => {
+      const s = get();
+      const rest = { ...paramsOf(s) };
+      delete rest[k];
+      set({ params: { ...s.params, [s.system]: rest } });
       persist(get());
     },
     resetParams: () => {

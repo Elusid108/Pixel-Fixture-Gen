@@ -9,6 +9,7 @@
  * SYSTEM_CORES, so a new system is covered as soon as it is registered.
  */
 import { runBuild } from '../build/runBuild';
+import { declaresFit } from '../fit';
 import { FIXTURES, getFixture } from '../fixtures/registry';
 import { SYSTEM_CORES } from '../workbench/cores';
 import { boundsFit, getPrinter } from '../printers';
@@ -31,6 +32,8 @@ for (const def of FIXTURES) {
     const options = s.type === 'pixel' ? s.pixels : s.type === 'select' ? s.options?.map((o) => o.value) : s.type === 'boolean' ? [true, false] : [];
     for (const o of options ?? []) if (o !== s.default) variants.push([`${s.key}=${o}`, { [s.key]: o }]);
   }
+  // Fit-aware fixtures must stay manifold across the fit range people actually use.
+  if (declaresFit(def)) variants.push(['fit=0.2', { fit: 0.2, seat: 0.1 }], ['fit=0.8', { fit: 0.8, seat: 0.35 }]);
   variants.push(['all min', mins], ['all max', maxs]);
 
   for (const [label, params] of variants) {
@@ -76,7 +79,9 @@ for (const core of SYSTEM_CORES) {
         variants.push([`${s.key}=${o}`, { [s.key]: o }]);
       }
     }
-    variants.push(['printer=bambu-a1mini', { printer: 'bambu-a1mini' }], ['all min', mins], ['all max', maxs]);
+    variants.push(['printer=bambu-a1mini', { printer: 'bambu-a1mini' }]);
+    if (declaresFit(getFixture(core.moduleId))) variants.push(['fit=0.2', { fit: 0.2, seat: 0.1 }], ['fit=0.8', { fit: 0.8, seat: 0.35 }]);
+    variants.push(['all min', mins], ['all max', maxs]);
 
     for (const [label, given] of variants) {
       const params: Params = { ...given, design };

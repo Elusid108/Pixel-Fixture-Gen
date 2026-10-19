@@ -842,6 +842,51 @@ button.small.primary {
   min-width: 0;
 }
 
+.global-fit {
+  display: flex;
+  gap: 10px;
+}
+.global-fit .num-input {
+  width: 58px;
+}
+.fit-controls em {
+  font-style: normal;
+  font-size: 10.5px;
+  margin-left: 6px;
+  color: var(--faint);
+}
+.fit-controls em.fit-own {
+  color: var(--amber);
+}
+.fit-controls .ghost.small {
+  align-self: flex-start;
+  padding: 3px 8px;
+  font-size: 11.5px;
+}
+.fit-note {
+  display: block;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+.assembly h4 {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+.assembly ol {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+}
+.assembly li {
+  margin-bottom: 6px;
+}
+.assembly .hw {
+  color: var(--amber);
+}
+
 /* ---- Narrow screens: stack everything ---- */
 @media (max-width: 980px) {
   .app {

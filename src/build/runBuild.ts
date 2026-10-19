@@ -3,7 +3,7 @@ import { boundsOf, inArena, makeCtx, toMeshData } from '../geom/manifold';
 import { getFixture } from '../fixtures/registry';
 import { resolveParams } from '../fixtures/util';
 import { computeSchedule, type ScheduleReport } from '../schedule/schedule';
-import type { BuiltPart, Params, PixelPlacement, Port } from '../types';
+import type { AssemblyStep, BuiltPart, Params, PixelPlacement, Port } from '../types';
 
 export interface BuildResult {
   fixtureId: string;
@@ -13,6 +13,7 @@ export interface BuildResult {
   ports: Port[];
   report: ScheduleReport;
   warnings: string[];
+  assembly: AssemblyStep[];
   /** Geometry problems: non-manifold or empty parts. Empty when the build is printable. */
   errors: string[];
   ms: number;
@@ -53,6 +54,7 @@ export function runBuild(wasm: ManifoldToplevel, fixtureId: string, given: Param
       ports: out.ports ?? [],
       report: computeSchedule(out.schedule, out.pixels, out.hardware, { enclosureCm3: out.enclosureCm3 }),
       warnings: out.warnings,
+      assembly: out.assembly ?? [],
       errors,
       ms: performance.now() - t0,
     };

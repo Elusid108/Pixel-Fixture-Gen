@@ -56,6 +56,8 @@ export interface ThreeMfInput {
   /** Plates mode: export only this plate (0-based). Omit for all plates. */
   plateIndex?: number;
   printer?: Printer;
+  /** Extra metadata recorded in the model, e.g. the fit gap the parts were modelled with. */
+  meta?: Record<string, string>;
 }
 
 export function build3mfXml(input: ThreeMfInput): string {
@@ -106,6 +108,7 @@ export function build3mfXml(input: ThreeMfInput): string {
     '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">',
     `<metadata name="Title">${esc(input.title)}</metadata>`,
     '<metadata name="Application">Pixel Fixture Gen</metadata>',
+    ...Object.entries(input.meta ?? {}).map(([k, v]) => `<metadata name="${esc(k)}">${esc(v)}</metadata>`),
     `<resources><basematerials id="1">${materials}</basematerials>${objects.join('')}</resources>`,
     `<build>${build.join('')}</build>`,
     '</model>',

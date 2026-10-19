@@ -11,6 +11,22 @@ How to add a catalogue fixture or a Workbench system. Concept rows (pixels, coun
 - The vector kit is `src/geom/vec.ts`; `src/geom/mat.ts` has matrix helpers (`T`, `Rx`, `Ry`, `Rz`, `mul`, `apply`).
 - Identical parts should print as one part ×N. `src/graph/dedupe.ts` has `matchSockets` (same part up to rotation) and `cluster1D` (lengths within tolerance).
 
+## Fit: every part must assemble straight off the printer
+
+The exported 3MF is the product. Every mating pair must be modelled with its clearance, so parts go together without sanding.
+
+- Spread `FIT_PARAMS` (`src/fit.ts`) into every fixture's and every Workbench module's params. The host fills `fit` and `seat` from the header, or from the fixture's override in the Fit group, and records both in the 3MF.
+- **Fit gap** (`fitOf(params)`, default 0.4 mm) is the **total** gap between mating printed parts. Use `sideOf(params)` (half the gap) per side:
+  - round fits (spigot in socket, pin in hole, sleeve over can): female diameter = male diameter + fit
+  - prismatic fits (dovetail in slot, key in pocket, tab in slot, panel in groove): female width = male width + fit, and depth + fit/2 where the male bottoms out
+  - sliding fits (shutters, gel frames, rails): the fit gap on each sliding face pair
+  - press or snap fits that need interference: model the snap on top of the gap, and say so in a note
+- **Seat clearance** (`seatOf(params)`, default 0.15 mm) is the radial clearance around a pixel in its socket. Pass it as `tol` to `socketCutter`.
+- Hardware (heat-set inserts, magnets, screws, filament pins) keeps its own published hole sizes. Those are not part-to-part fits.
+- Don't add per-fixture `tol` or `clearance` params; the Fit group replaces them.
+- Return `assembly` steps in build order: title, the part ids involved, hardware and a note. They appear in the Parts tab.
+- `check:geom` builds every fit-aware fixture at fit 0.2 and 0.8. Both must stay manifold.
+
 ## A catalogue fixture
 
 1. Add `src/fixtures/<series>/<name>.ts` exporting a `FixtureDef` (see `swatchbook.ts`, `fresnel.ts`, `hive.ts`).

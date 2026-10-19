@@ -35,7 +35,10 @@ export function ExportPanel() {
   };
   const threeMf = (mode: 'plates' | 'assembly', plateIndex?: number) =>
     run(`${mode}${plateIndex ?? ''}`, async () => {
-      const bytes = await build3mf({ title, parts: result.parts, mode, plates, plateIndex, printer });
+      const meta: Record<string, string> = { Printer: printer.name };
+      if (result.params.fit !== undefined) meta.FitGap = `${Number(result.params.fit).toFixed(2)} mm`;
+      if (result.params.seat !== undefined) meta.PixelSeatClearance = `${Number(result.params.seat).toFixed(2)} mm`;
+      const bytes = await build3mf({ title, parts: result.parts, mode, plates, plateIndex, printer, meta });
       const suffix = mode === 'assembly' ? 'assembly' : plateIndex === undefined ? `${plates.length}-plates` : `plate-${plateIndex + 1}`;
       download(bytes, `${base}-${suffix}.3mf`, 'model/3mf');
     });
@@ -47,6 +50,13 @@ export function ExportPanel() {
         <p>
           Named parts with body / diffuser / baffle material slots, laid out for a {printer.name}. Map the slots to filaments in your
           slicer.
+          {result.params.fit !== undefined && (
+            <>
+              {' '}
+              Joints are modelled with a <b>{Number(result.params.fit).toFixed(2)} mm</b> fit gap and pixels with{' '}
+              <b>{Number(result.params.seat).toFixed(2)} mm</b> seat clearance; both are recorded in the file.
+            </>
+          )}
         </p>
         <div className="buttons">
           <button className="primary" disabled={!!busy || result.errors.length > 0} onClick={() => threeMf('plates')}>

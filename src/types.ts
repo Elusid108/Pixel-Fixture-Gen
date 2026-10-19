@@ -92,6 +92,17 @@ export interface FixtureOutput<S = Manifold> {
   ports?: Port[];
   /** Enclosed air volume around the emitters, for the thermal check. */
   enclosureCm3?: number;
+  /** Assembly order, first step first. Shown in the Parts tab. */
+  assembly?: AssemblyStep[];
+}
+
+export interface AssemblyStep {
+  title: string;
+  /** Part ids used in this step. */
+  parts?: string[];
+  /** Hardware or consumables for this step ("2× M3 heat-set", "CA glue"). */
+  hardware?: string;
+  note?: string;
 }
 
 export interface BuildCtx {
