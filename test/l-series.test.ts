@@ -119,8 +119,8 @@ const build = (id: string, p: Record<string, string | number | boolean> = {}) =>
 const copies = (r: ReturnType<typeof build>, id: string) => r.parts.filter((p) => p.id.startsWith(id)).reduce((s, p) => s + p.instances.length, 0);
 
 describe('L-series registry', () => {
-  it('builds all six and leaves nothing on the drawing board', () => {
-    expect(L_FIXTURES.map((f) => f.code)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6']);
+  it('builds all nine and leaves nothing on the drawing board', () => {
+    expect(L_FIXTURES.map((f) => f.code)).toEqual(['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9']);
     expect(L_PLANNED).toHaveLength(0);
     for (const f of L_FIXTURES) expect(f.params.find((p) => p.key === 'printer')?.hidden).toBe(true);
   });
@@ -167,7 +167,7 @@ describe('L1 The Orb', () => {
         used.add(f!.idx);
       }
     expect(used.size).toBe(180);
-    expect(r.pixels).toHaveLength(180);
+    expect(r.pixels.filter((p) => p.unit === 'L1-F')).toHaveLength(180);
   });
 });
 
