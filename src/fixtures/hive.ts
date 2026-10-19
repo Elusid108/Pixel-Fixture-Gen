@@ -1,7 +1,7 @@
-import type { Manifold } from 'manifold-3d';
+import type { CrossSection, Manifold } from 'manifold-3d';
 import { Geo } from '../geom/geo';
 import { mul, Rz, T } from '../geom/mat';
-import { getPixel } from '../pixels/library';
+import { getPixel, type PixelType } from '../pixels/library';
 import { socketCutter } from '../pixels/sockets';
 import type { FixtureDef, PartSpec, PixelPlacement, Port } from '../types';
 import { bool, num, str } from './util';
@@ -20,6 +20,145 @@ export function hiveCells(rings: number, pitch: number): [number, number][] {
     out.push(...((r + rings) % 2 ? row.reverse() : row));
   }
   return out;
+}
+
+/** Everything that sizes one Hive tile. The catalogue tile and the M1 Hive wall both build from this. */
+export interface HiveTileOpts {
+  /** 1, 2, 3 → S, M, L (7, 19, 37 cells). */
+  rings: number;
+  pitch: number;
+  baffle: number;
+  wiring: number;
+  diffuser: number;
+  wall: number;
+  magnets: boolean;
+  bowties: boolean;
+  tol: number;
+  pixel: PixelType;
+  /** Keyhole entry points on the back, along local Y (mm). Default ±0.45 × the outer apothem. */
+  keyholeY?: number[];
+  /** Back-face engraving. Default `M1 <cells>`; null leaves the back blank (the wall engraves its own). */
+  label?: string | null;
+}
+
+/** Pure dimensions of a Hive tile (no geometry), so layouts can size tiles on the UI thread. */
+export interface HiveTileDims {
+  rings: number;
+  pitch: number;
+  /** Node diameter. */
+  nodeD: number;
+  /** Baffle wall and the cell opening's apothem. */
+  bw: number;
+  cellIn: number;
+  floorT: number;
+  carrierT: number;
+  wall: number;
+  /** Inner apothem (layer stack), outer apothem (shell), ledge apothem (carrier seat). */
+  Ai: number;
+  A: number;
+  Al: number;
+  zLedge: number;
+  zBaffle: number;
+  zDiff: number;
+  /** Shell height = the diffuser's front face. */
+  Hs: number;
+  edgeLen: number;
+  /** Cell centres in data (serpentine) order. */
+  cells: [number, number][];
+}
+
+export function hiveTileDims(o: Pick<HiveTileOpts, 'rings' | 'pitch' | 'baffle' | 'wiring' | 'diffuser' | 'wall' | 'pixel'>): HiveTileDims {
+  const n = o.rings;
+  const p = o.pitch;
+  const nodeD = o.pixel.shape.kind === 'round' ? o.pixel.shape.d : 12;
+  const bw = 1.2; // baffle wall
+  const floorT = 3.2;
+  const carrierT = 2;
+  const Ai = n * p * (SQ3 / 2) + p / SQ3 + 0.6;
+  const A = Ai + o.wall;
+  const zLedge = floorT + o.wiring;
+  const zBaffle = zLedge + carrierT;
+  const zDiff = zBaffle + o.baffle;
+  return {
+    rings: n,
+    pitch: p,
+    nodeD,
+    bw,
+    cellIn: p / 2 - bw / 2,
+    floorT,
+    carrierT,
+    wall: o.wall,
+    Ai,
+    A,
+    Al: Ai - 2.5,
+    zLedge,
+    zBaffle,
+    zDiff,
+    Hs: zDiff + o.diffuser,
+    edgeLen: 2 * A * Math.tan(Math.PI / 6),
+    cells: hiveCells(n, p),
+  };
+}
+
+export interface HiveTileSolids {
+  dims: HiveTileDims;
+  shell: Manifold;
+  carrier: Manifold;
+  baffle: Manifold;
+  diffuser: Manifold;
+  /** One bowtie key, waist on the origin. */
+  key: Manifold;
+  /** The baffle's 2D section (outline minus cell openings), for clipping without 3D booleans. */
+  baffleCS: CrossSection;
+  /** One pixel seat, emitter face at z=0 (place it at the carrier's top). */
+  socket: Manifold;
+}
+
+/** Back-face engraving cutter for a Hive shell, mirrored so it reads from behind. */
+export function hiveLabel(g: Geo, text: string, x: number, y: number): Manifold {
+  const label = g.text(text, 6, 0.8).mirror([0, 1]).translate([x, y]);
+  return g.extrude(label, -1, 0.6);
+}
+
+/**
+ * The four printed layers of one Hive tile, in print orientation (each on z=0). Shared by the
+ * catalogue tile below and the M1 Hive wall, which clips them for edge tiles.
+ */
+export function hiveTileSolids(g: Geo, o: HiveTileOpts): HiveTileSolids {
+  const d = hiveTileDims(o);
+  const { floorT, carrierT, Ai, A, Al, zLedge, Hs, edgeLen, cells, cellIn } = d;
+
+  /* ---------- Shell ---------- */
+  const shellCuts: Manifold[] = [g.extrude(g.hex(Al), floorT, Hs + 1), g.extrude(g.hex(Ai), zLedge, Hs + 1)];
+  const edgeFeature = (m: Manifold, k: number) => g.place(m, Rz(30 + 60 * k));
+  for (let k = 0; k < 6; k++) {
+    // Edge-local: face at x=A, tangent along Y.
+    shellCuts.push(edgeFeature(g.box([A - o.wall - 3.5, -4.5, floorT], [A + 1, 4.5, floorT + 7]), k)); // JST notch
+    if (o.magnets) {
+      for (const s of [-1, 1]) shellCuts.push(edgeFeature(g.cylX(3.15, A - 3.2, A + 0.1, (s * edgeLen) / 4, floorT + 8), k));
+    }
+    if (o.bowties) {
+      shellCuts.push(edgeFeature(g.extrude(g.halfBowtie(8, 14, 10).rotate(90).translate([A, 0]), -1, 2.0), k));
+    }
+  }
+  for (const y of o.keyholeY ?? [-A * 0.45, A * 0.45]) shellCuts.push(g.keyhole(floorT).translate([0, y, 0]));
+  shellCuts.push(g.cylZ(5, -1, floorT + 1));
+  const label = o.label === undefined ? `M1 ${cells.length}` : o.label;
+  if (label) shellCuts.push(hiveLabel(g, label, 0, -A * 0.18));
+  const shell = g.cut(g.extrude(g.hex(A), 0, Hs), shellCuts);
+
+  /* ---------- Carrier, baffle, diffuser ---------- */
+  const socket = socketCutter(g, o.pixel, { tol: o.tol });
+  const carrier = g.cut(
+    g.extrude(g.hex(Ai - 0.3), 0, carrierT),
+    cells.map(([x, y]) => g.place(socket, T(x, y, carrierT))),
+  );
+  const cellHoles = g.CS.union(cells.map(([x, y]) => g.hex(cellIn, false, x, y)));
+  const baffleCS = g.hex(Ai - 0.3).subtract(cellHoles);
+  const baffle = g.extrude(baffleCS, 0, o.baffle);
+  const diffuser = g.extrude(g.hex(Ai - 0.25), 0, o.diffuser);
+  const key = g.extrude(g.bowtie(7.7, 13.7, 9.8), 0, 1.8);
+  return { dims: d, shell, carrier, baffle, diffuser, key, baffleCS, socket };
 }
 
 /**
@@ -67,69 +206,29 @@ export const hive: FixtureDef = {
   build(ctx, params) {
     const g = new Geo(ctx);
     const pixel = getPixel(str(params, 'pixel'));
-    const n = Number(str(params, 'rings'));
-    const p = num(params, 'pitch');
-    const baffleH = num(params, 'baffle');
+    const tile = hiveTileSolids(g, {
+      rings: Number(str(params, 'rings')),
+      pitch: num(params, 'pitch'),
+      baffle: num(params, 'baffle'),
+      wiring: num(params, 'wiring'),
+      diffuser: num(params, 'diffuser'),
+      wall: num(params, 'wall'),
+      magnets: bool(params, 'magnets'),
+      bowties: bool(params, 'bowties'),
+      tol: num(params, 'tol'),
+      pixel,
+    });
+    const { pitch: p, nodeD, bw, cellIn, Ai, A, zLedge, zBaffle, zDiff, Hs, cells } = tile.dims;
     const wiring = num(params, 'wiring');
-    const difT = num(params, 'diffuser');
-    const wall = num(params, 'wall');
-    const tol = num(params, 'tol');
-    const nodeD = pixel.shape.kind === 'round' ? pixel.shape.d : 12;
+    const baffleH = num(params, 'baffle');
     const warnings: string[] = [];
-
-    const bw = 1.2; // baffle wall
-    const cellIn = p / 2 - bw / 2;
     if (cellIn < nodeD / 2 + 1) warnings.push(`Cells are tight for a ${nodeD} mm node at ${p} mm pitch. Try ${Math.ceil(nodeD + 2 + bw)} mm or more.`);
 
-    const floorT = 3.2;
-    const carrierT = 2;
-    const Ai = n * p * (SQ3 / 2) + p / SQ3 + 0.6;
-    const A = Ai + wall;
-    const Al = Ai - 2.5;
-    const zLedge = floorT + wiring;
-    const zBaffle = zLedge + carrierT;
-    const zDiff = zBaffle + baffleH;
-    const Hs = zDiff + difT;
-    const edgeLen = 2 * A * Math.tan(Math.PI / 6);
-    const cells = hiveCells(n, p);
-
-    /* ---------- Shell ---------- */
-    const shellCuts: Manifold[] = [g.extrude(g.hex(Al), floorT, Hs + 1), g.extrude(g.hex(Ai), zLedge, Hs + 1)];
-    const edgeFeature = (m: Manifold, k: number) => g.place(m, Rz(30 + 60 * k));
-    for (let k = 0; k < 6; k++) {
-      // Edge-local: face at x=A, tangent along Y.
-      shellCuts.push(edgeFeature(g.box([A - wall - 3.5, -4.5, floorT], [A + 1, 4.5, floorT + 7]), k)); // JST notch
-      if (bool(params, 'magnets')) {
-        for (const s of [-1, 1]) shellCuts.push(edgeFeature(g.cylX(3.15, A - 3.2, A + 0.1, (s * edgeLen) / 4, floorT + 8), k));
-      }
-      if (bool(params, 'bowties')) {
-        shellCuts.push(edgeFeature(g.extrude(g.halfBowtie(8, 14, 10).rotate(90).translate([A, 0]), -1, 2.0), k));
-      }
-    }
-    for (const sy of [-1, 1]) shellCuts.push(g.keyhole(floorT).translate([0, sy * A * 0.45, 0]));
-    shellCuts.push(g.cylZ(5, -1, floorT + 1));
-    const label = g
-      .text(`M1 ${cells.length}`, 6, 0.8)
-      .mirror([0, 1])
-      .translate([0, -A * 0.18]);
-    shellCuts.push(g.extrude(label, -1, 0.6));
-    const shell = g.cut(g.extrude(g.hex(A), 0, Hs), shellCuts);
-
-    /* ---------- Carrier, baffle, diffuser ---------- */
-    const carrier = g.cut(
-      g.extrude(g.hex(Ai - 0.3), 0, carrierT),
-      cells.map(([x, y]) => g.place(socketCutter(g, pixel, { tol }), T(x, y, carrierT))),
-    );
-    const cellHoles = g.CS.union(cells.map(([x, y]) => g.hex(cellIn, false, x, y)));
-    const baffle = g.extrude(g.hex(Ai - 0.3).subtract(cellHoles), 0, baffleH);
-    const diffuser = g.extrude(g.hex(Ai - 0.25), 0, difT);
-    const key = g.extrude(g.bowtie(7.7, 13.7, 9.8), 0, 1.8);
-
     const parts: PartSpec<Manifold>[] = [
-      { id: 'shell', name: 'Back shell', role: 'body', solid: shell, instances: [T(0, 0, 0)], explode: [0, 0, -1] },
-      { id: 'carrier', name: 'Pixel carrier', role: 'body', solid: carrier, instances: [T(0, 0, zLedge)], explode: [0, 0, 0.6] },
-      { id: 'baffle', name: 'Honeycomb baffle', role: 'baffle', solid: baffle, instances: [T(0, 0, zBaffle)], explode: [0, 0, 1.4] },
-      { id: 'diffuser', name: 'Opal diffuser', role: 'diffuser', solid: diffuser, instances: [T(0, 0, zDiff)], explode: [0, 0, 2.4] },
+      { id: 'shell', name: 'Back shell', role: 'body', solid: tile.shell, instances: [T(0, 0, 0)], explode: [0, 0, -1] },
+      { id: 'carrier', name: 'Pixel carrier', role: 'body', solid: tile.carrier, instances: [T(0, 0, zLedge)], explode: [0, 0, 0.6] },
+      { id: 'baffle', name: 'Honeycomb baffle', role: 'baffle', solid: tile.baffle, instances: [T(0, 0, zBaffle)], explode: [0, 0, 1.4] },
+      { id: 'diffuser', name: 'Opal diffuser', role: 'diffuser', solid: tile.diffuser, instances: [T(0, 0, zDiff)], explode: [0, 0, 2.4] },
     ];
     if (bool(params, 'bowties')) {
       // Three keys, half-seated on alternate edges, so the view shows how neighbours lock on.
@@ -137,7 +236,7 @@ export const hive: FixtureDef = {
         id: 'bowtie',
         name: 'Bowtie key',
         role: 'body',
-        solid: key,
+        solid: tile.key,
         instances: [0, 2, 4].map((k) => mul(Rz(30 + 60 * k), T(A, 0, 0), Rz(90), T(0, 0, -0.01))),
         explode: [0, 0, -1.6],
         note: 'One per seam. Glue optional.',
